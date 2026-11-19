@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>물류센터 지도</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">물류센터 지도</div>
+  <nav class="tabs" role="tablist">
+    <button class="tab on" data-tab="centers" role="tab">수도권 물류센터 DB</button>
+    <button class="tab" data-tab="deals" role="tab">거래사례</button>
+  </nav>
+  <div class="meta"><span id="stamp"></span><button id="logout" class="link" title="저장된 비밀번호 지우기">잠금</button></div>
+</header>
+
+<section class="filters" id="filters"></section>
+
+<main class="mapwrap">
+  <div id="map"></div>
+  <div class="legend" id="legend"></div>
+  <div class="maptip" id="maptip"></div>
+</main>
+
+<section class="detail" id="detail">
+  <p class="empty">지도에서 원을 클릭하면 세부 내용이 여기에 표시됩니다.</p>
+</section>
+
+<section class="list">
+  <div class="list-head"><h2 id="listTitle">목록</h2><span id="listInfo" class="muted"></span></div>
+  <div class="tablewrap"><table id="table"></table></div>
+  <button id="more" class="more" hidden>더 보기</button>
+</section>
+
+<div class="gate" id="gate">
+  <form class="gate-box" id="gateForm" autocomplete="off">
+    <h1>물류센터 지도</h1>
+    <p class="muted">비밀번호를 입력하세요.</p>
+    <input type="password" id="pw" placeholder="비밀번호" autocomplete="current-password" required>
+    <label class="remember"><input type="checkbox" id="remember" checked> 이 기기에서 기억하기</label>
+    <button type="submit" id="go">열기</button>
+    <p class="err" id="gateErr"></p>
+  </form>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
