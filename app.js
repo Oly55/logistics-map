@@ -145,7 +145,7 @@
     S.data = d;
     var up = function (s) { return String(s || '').replace(/^Update\s*:\s*/i, ''); };
     S.stampText = { centers: 'DB ' + (up(C.updated) || '-') + ' 기준', deals: '거래사례 ' + (up(D.updated) || '-') + ' 기준' };
-    $('stamp').textContent = '최종 조회 ' + (d.generatedAt || '') + ' KST';
+    $('stamp').textContent = '불러온 시각 ' + (d.generatedAt || '');
   }
 
   function yearOf(w) {
@@ -169,9 +169,11 @@
 
   function zoomFactor() {
     var lv = S.map ? S.map.getLevel() : 10;
-    return lv >= 12 ? 0.6 : lv >= 11 ? 0.75 : lv >= 9 ? 0.9 : lv <= 6 ? 1.3 : 1;
+    return lv >= 12 ? 0.85 : lv <= 6 ? 1.15 : 1;
   }
-  function dotSize(area) { return Math.max(9, Math.min(54, 7 + Math.sqrt(area || 0) * 0.16)) * zoomFactor(); }
+  // 원 크기: 연면적에 따라 아주 약간만 차이(약 9~15px)
+  function baseSize(area) { var t = (Math.sqrt(area || 0) - 30) / 360; return 9 + 6 * Math.max(0, Math.min(1, t)); }
+  function dotSize(area) { return baseSize(area) * zoomFactor(); }
   function colorOf(r) {
     if (r.kind === 'centers') return S.data.centers.regionColor[r.region] || '#888';
     return GRADE_COLORS[r.grade] || GRADE_COLORS['기타'];
@@ -359,9 +361,9 @@
       h += '<div class="p-sec"><p class="p-title">거래시기</p>' + chips('years', D.yearList, countBy('years', 'year')) + '</div>';
       h += '<div class="p-sec"><p class="p-title">구분</p>' + chips('types', D.typeList, countBy('types', 'type')) + '</div>';
     }
-    h += '<div class="p-sec"><p class="p-title">원 크기 = 연면적</p><div class="sizes">';
+    h += '<div class="p-sec"><p class="p-title">원 크기</p><p class="p-hint">연면적이 클수록 약간 커집니다</p><div class="sizes">';
     [10000, 30000, 100000].forEach(function (a) {
-      var s = Math.max(9, Math.min(54, 7 + Math.sqrt(a) * 0.16));
+      var s = baseSize(a);
       h += '<div><i style="width:' + s + 'px;height:' + s + 'px"></i>' + fmt(a / 10000) + '만평</div>';
     });
     h += '</div><p class="p-note">멸실된 센터는 표시하지 않습니다. 같은 위치의 작은 원은 큰 원 위에 그려집니다.</p></div>';
@@ -385,59 +387,80 @@
     if (c) c.innerHTML = '<b>' + fmt(list.length) + '</b>' + (S.tab === 'centers' ? '곳' : '건') + ' / 전체 ' + fmt(total) + (list.length !== onMap ? ' · 지도 표시 ' + fmt(onMap) : '');
   }
 
-  /* ---------------- 요약 KPI ---------------- */
-  function kpi(title, when, num, unit, sub, foot) {
-    return '<div class="kpi"><div class="kpi-top"><span class="kpi-title">' + title + '</span><span class="kpi-when">' + (when || '') + '</span></div>' +
-      '<div class="kpi-num">' + num + (unit ? '<small>' + unit + '</small>' : '') + '</div>' +
-      (sub ? '<div class="kpi-sub">' + sub + '</div>' : '') + (foot ? '<div class="kpi-foot">' + foot + '</div>' : '') + '</div>';
+  /* ---------------- 요약(한 줄 요약 + 작은 지표 카드) ---------------- */
+  function tile(label, val, unit, sub, cls) {
+    return '<div class="kpi"><span class="kpi-label">' + label + '</span><span class="kpi-val' + (cls ? ' ' + cls : '') + '">' + val + (unit ? '<small>' + unit + '</small>' : '') + '</span>' +
+      (sub ? '<span class="kpi-sub">' + sub + '</span>' : '') + '</div>';
   }
   function man(n) { return (n / 10000).toFixed(1); }
   function median(a) { if (!a.length) return null; a = a.slice().sort(function (x, y) { return x - y; }); var m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+  function delta(n, unit) { return n > 0 ? '<span class="up">+' + fmt(n) + unit + '</span>' : n < 0 ? '<span class="dn">' + fmt(n) + unit + '</span>' : '±0' + unit; }
+  function condText() {
+    var f = S.f[S.tab], parts = [];
+    if (f.min && (f.max == null || f.max === '')) parts.push('연면적 ' + areaLabel(f.min).replace('↑', ' 이상'));
+    else if (f.min || f.max) parts.push('연면적 ' + (f.min ? fmt(f.min) : '0') + '~' + (f.max ? fmt(f.max) : '') + '평');
+    ['regions', 'grades', 'years', 'types'].forEach(function (k) { if (f[k] && Object.keys(f[k]).some(function (x) { return !f[k][x]; })) parts.push('일부 ' + { regions: '권역', grades: '평가', years: '거래시기', types: '구분' }[k]); });
+    if (f.q) parts.push("검색어 '" + esc(f.q) + "'");
+    return parts.length ? parts.join(' · ') + ' 조건에서' : '전체 기준으로';
+  }
+  function qIndex(w) { var m = /^(\d{2})\.(\d)Q/.exec(w || ''); return m ? Number(m[1]) * 4 + Number(m[2]) - 1 : null; }
+  function qLabel(i) { return String(Math.floor(i / 4)).padStart(2, '0') + '.' + (i % 4 + 1) + 'Q'; }
 
   function renderKpis(list) {
-    var h = '', fl = '필터 적용';
+    var h = '', take = '';
     if (S.tab === 'centers') {
       var C = S.data.centers;
+      var total = C.rows.filter(function (r) { return !r.demolished; }).length;
       var sum = list.reduce(function (a, r) { return a + (r.area || 0); }, 0);
-      var big = list.filter(function (r) { return r.area >= 30000; }).length;
       var areas = list.map(function (r) { return r.area; }).filter(Boolean);
-      var yr = new Date().getFullYear(), recent = list.filter(function (r) { var y = Number(String(r.done).slice(0, 4)); return y >= yr - 2; });
-      h += kpi('표시 센터', fl, fmt(list.length), '곳', '3만평 이상 <b>' + fmt(big) + '</b>곳', '멸실 제외 · 시트 단지 기준(하위 동 합산)');
-      h += kpi('연면적 합계', fl, man(sum), '만평', '평균 <b>' + fmt(areas.length ? sum / areas.length : 0) + '</b>평 · 중앙값 <b>' + fmt(median(areas)) + '</b>평', '연면적(평) 열 합계');
-      h += kpi('최근 3년 준공', (yr - 2) + '~' + yr, fmt(recent.length), '곳', '연면적 <b>' + man(recent.reduce(function (a, r) { return a + r.area; }, 0)) + '</b>만평', '준공일 기준');
-      // 권역별 비중(면적)
+      var big = list.filter(function (r) { return r.area >= 30000; });
+      var yr = new Date().getFullYear();
+      var recent = list.filter(function (r) { return Number(String(r.done).slice(0, 4)) >= yr - 2; });
+      var traded = list.filter(function (r) { return has(g(C, r, '거래가격(억원)')); });
+      var pp = traded.map(function (r) { return num(g(C, r, '평단가')); }).filter(function (x) { return x && x > 0; });
       var by = {};
       list.forEach(function (r) { by[r.region] = (by[r.region] || 0) + r.area; });
-      var keys = C.regionList.filter(function (k) { return by[k]; });
-      var bar = '<div class="stack">', lg = '<div class="stack-legend">';
-      keys.forEach(function (k) {
-        var p = sum ? by[k] / sum * 100 : 0;
-        bar += '<i style="width:' + p + '%;background:' + C.regionColor[k] + '" title="' + esc(stripNo(k)) + ' ' + p.toFixed(0) + '%"></i>';
-        lg += '<span><span class="sw" style="width:8px;height:8px;border-radius:50%;display:inline-block;background:' + C.regionColor[k] + '"></span>' + esc(stripNo(k)) + ' <b>' + p.toFixed(0) + '%</b></span>';
-      });
-      h += '<div class="kpi"><div class="kpi-top"><span class="kpi-title">권역별 비중</span><span class="kpi-when">연면적 기준</span></div>' + bar + '</div>' + lg + '</div></div>';
+      var rank = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; });
+      var pct = function (k) { return sum ? Math.round(by[k] / sum * 100) : 0; };
+      var areaSum = function (arr) { return man(arr.reduce(function (a, r) { return a + r.area; }, 0)); };
+      h += tile('표시 센터', fmt(list.length), '곳', '전체 ' + fmt(total) + '곳 중');
+      h += tile('연면적 합계', man(sum), '만평', '평균 ' + fmt(areas.length ? sum / areas.length : 0) + '평');
+      h += tile('3만평 이상', fmt(big.length), '곳', '연면적 ' + areaSum(big) + '만평');
+      h += tile('최근 3년 준공', fmt(recent.length), '곳', (yr - 2) + '~' + yr + ' · ' + areaSum(recent) + '만평');
+      h += tile('최대 권역', rank.length ? esc(stripNo(rank[0])) : '-', '', rank.length ? '연면적 비중 ' + pct(rank[0]) + '%' : '', 'txt');
+      h += tile('거래가 있는 센터', fmt(traded.length), '곳', '평단가 중앙값 ' + (pp.length ? fmt(median(pp)) + '만원' : '-'));
+      take = condText() + ' 센터는 <b>' + fmt(list.length) + '곳</b>, 연면적 <b>' + man(sum) + '만평</b>입니다. ' +
+        (rank.length ? '권역별로는 ' + rank.slice(0, 3).map(function (k) { return esc(stripNo(k)) + '(' + pct(k) + '%)'; }).join('·') + ' 순으로 크고, ' : '') +
+        '최근 3년 준공은 <b>' + fmt(recent.length) + '곳 · ' + areaSum(recent) + '만평</b>입니다.';
       $('sumNote').textContent = S.stampText ? S.stampText.centers : '';
     } else {
       var D = S.data.deals;
       var done = list.filter(function (r) { return r.year !== '진행중'; });
-      var amt = done.reduce(function (a, r) { return a + (r.price || 0); }, 0);
-      var pp = done.map(function (r) { return num(g(D, r, '평단가(만원)')); }).filter(function (x) { return x && x > 0; });
+      var priced = done.filter(function (r) { return r.price; });
+      var amt = priced.reduce(function (a, r) { return a + r.price; }, 0);
+      var pp2 = done.map(function (r) { return num(g(D, r, '평단가(만원)')); }).filter(function (x) { return x && x > 0; });
       var caps = done.map(function (r) { return num(g(D, r, 'Cap.rate')); }).filter(function (x) { return x && x > 0 && x < 20; });
-      var ongoing = list.length - done.length;
-      h += kpi('거래사례', fl, fmt(done.length), '건', '진행중 <b>' + fmt(ongoing) + '</b>건 · 연면적 <b>' + man(done.reduce(function (a, r) { return a + r.area; }, 0)) + '</b>만평', '완료 거래 기준(진행중 제외)');
-      h += kpi('거래금액 합계', fl, amt >= 10000 ? (amt / 10000).toFixed(2) : fmt(amt), amt >= 10000 ? '조원' : '억원', '건당 평균 <b>' + fmt(done.filter(function (r) { return r.price; }).length ? amt / done.filter(function (r) { return r.price; }).length : 0) + '</b>억', '매매가(억원) 열 합계');
-      h += kpi('평단가 중앙값', fl, fmt(median(pp)), '만원/평', 'Cap 중앙값 <b>' + (caps.length ? median(caps).toFixed(1) + '%' : '-') + '</b>', '값이 있는 거래 ' + pp.length + '건 기준');
-      // 연도별 건수
-      var ys = {}, yl = [];
-      done.forEach(function (r) { if (/^\d{4}$/.test(r.year)) ys[r.year] = (ys[r.year] || 0) + 1; });
-      yl = Object.keys(ys).sort().slice(-8);
-      var mx = Math.max.apply(null, yl.map(function (y) { return ys[y]; }).concat([1]));
-      var bars = '<div class="bars">', lbl = '<div class="barlabels">';
-      yl.forEach(function (y, i) { bars += '<div class="b' + (i === yl.length - 1 ? ' hi' : '') + '" style="height:' + Math.max(4, ys[y] / mx * 100) + '%" title="' + y + ' ' + ys[y] + '건"></div>'; lbl += '<span>\'' + y.slice(2) + '</span>'; });
-      h += '<div class="kpi"><div class="kpi-top"><span class="kpi-title">연도별 거래 건수</span><span class="kpi-when">최근 ' + yl.length + '개 연도</span></div>' + bars + '</div>' + lbl + '</div></div>';
+      var qs = done.map(function (r) { return qIndex(r.when); }).filter(function (x) { return x != null; });
+      var last = qs.length ? Math.max.apply(null, qs) : null;
+      var inQ = function (lo, hi) { return done.filter(function (r) { var q = qIndex(r.when); return q != null && q >= lo && q <= hi; }); };
+      var cur = last != null ? inQ(last - 3, last) : [], prev = last != null ? inQ(last - 7, last - 4) : [];
+      var buyers = {};
+      priced.forEach(function (r) { var b = clean(g(D, r, '매수자')); if (b) { buyers[b] = buyers[b] || { n: 0, a: 0 }; buyers[b].n++; buyers[b].a += r.price; } });
+      var topB = Object.keys(buyers).sort(function (a, b) { return buyers[b].a - buyers[a].a; })[0];
+      var money = function (v) { return v >= 10000 ? [(v / 10000).toFixed(2), '조원'] : [fmt(v), '억원']; };
+      var m = money(amt);
+      h += tile('완료 거래', fmt(done.length), '건', '진행중 ' + fmt(list.length - done.length) + '건');
+      h += tile('거래금액 합계', m[0], m[1], '건당 평균 ' + fmt(priced.length ? amt / priced.length : 0) + '억원');
+      h += tile('최근 4개 분기', fmt(cur.length), '건', last != null ? '직전 4개 분기 대비 ' + delta(cur.length - prev.length, '건') : '');
+      h += tile('평단가 중앙값', pp2.length ? fmt(median(pp2)) : '-', '만원/평', '값이 있는 ' + pp2.length + '건 기준');
+      h += tile('Cap 중앙값', caps.length ? median(caps).toFixed(2) : '-', '%', caps.length + '건 기준');
+      h += tile('최대 매수자', topB ? esc(topB) : '-', '', topB ? buyers[topB].n + '건 · ' + fmt(buyers[topB].a) + '억원' : '', 'txt');
+      take = condText() + ' 완료 거래는 <b>' + fmt(done.length) + '건</b>, 공개된 매매가 합 <b>' + m[0] + m[1] + '</b>이고 진행중 딜은 <b>' + fmt(list.length - done.length) + '건</b>입니다.' +
+        (last != null ? ' 최근 4개 분기(' + qLabel(last - 3) + '~' + qLabel(last) + ') 거래는 <b>' + fmt(cur.length) + '건</b>으로 직전 4개 분기 ' + fmt(prev.length) + '건보다 ' + (cur.length > prev.length ? '늘었습니다.' : cur.length < prev.length ? '줄었습니다.' : '같습니다.') : '');
       $('sumNote').textContent = S.stampText ? S.stampText.deals : '';
     }
     $('kpis').innerHTML = h;
+    $('take').innerHTML = take;
   }
 
   /* ---------------- 탭 ---------------- */
