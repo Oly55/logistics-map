@@ -8,14 +8,15 @@
 
   var REGION_COLORS = ['#2747a8', '#0e8f7b', '#d4682a', '#7a4fb5', '#c8302f', '#1b88ad', '#a26a00', '#7b8494', '#3aa564', '#e5484d'];
   var GRADE_COLORS = { '굿딜': '#1f7a4d', '평범': '#3354c4', '별로': '#c8302f', 'KS captive': '#7b8494', '진행중': '#d4682a', '기타': '#b9c0cc' };
-  var AREA_CHIPS = { centers: [0, 5000, 10000, 20000, 30000, 50000], deals: [0, 10000, 20000, 30000] };
+  var AREA_CHIPS = { centers: [0, 5000, 10000, 20000, 30000, 50000], deals: [0, 10000, 20000, 30000], wh: [0, 1000, 3000, 10000, 30000] };
 
   var S = {
     data: null, tab: 'centers', map: null, dots: [], info: null, limit: PAGE,
-    sel: { centers: null, deals: null },
+    sel: { centers: null, deals: null, wh: null },
     f: {
       centers: { min: 10000, max: null, regions: {}, q: '', sort: 'area', dir: -1 },
-      deals: { min: null, max: null, grades: {}, years: {}, types: {}, q: '', sort: 'when', dir: -1 }
+      deals: { min: null, max: null, grades: {}, years: {}, types: {}, q: '', sort: 'when', dir: -1 },
+      wh: { min: null, max: null, groups: {}, regions: {}, q: '', sort: 'area', dir: -1 }
     }
   };
 
@@ -77,6 +78,7 @@
       }
       if (!silent && $('remember').checked) store(PW_KEY, pw);
       $('gate').hidden = true;
+      S.pw = pw;
       prep(d);
       renderNews(d.news || []);
       S.kakaoKey = CFG.kakaoKey || d.kakaoJsKey || '';
@@ -175,6 +177,7 @@
   function baseSize(area) { var t = (Math.sqrt(area || 0) - 30) / 360; return 9 + 6 * Math.max(0, Math.min(1, t)); }
   function dotSize(area) { return baseSize(area) * zoomFactor(); }
   function colorOf(r) {
+    if (r.kind === 'wh') return S.data.wh.color[r.group] || WH_UNCLS;
     if (r.kind === 'centers') return S.data.centers.regionColor[r.region] || '#888';
     return GRADE_COLORS[r.grade] || GRADE_COLORS['기타'];
   }
@@ -206,6 +209,8 @@
     renderCount(list, onMap.length);
     renderKpis(list);
     renderPanel();
+    $('whCharts').hidden = S.tab !== 'wh';
+    if (S.tab === 'wh') whCharts();
     S.limit = PAGE;
     renderList(list);
     if (S.sel[S.tab] && hasXY(S.sel[S.tab]) && list.indexOf(S.sel[S.tab]) >= 0) openInfo(S.sel[S.tab]);
@@ -220,7 +225,9 @@
   function yymm(s) { var d = String(s || '').replace(/[^0-9]/g, ''); return d.length >= 6 ? d.slice(2, 4) + '.' + d.slice(4, 6) : ''; }
   function hoverText(r) {
     var parts;
-    if (r.kind === 'centers') {
+    if (r.kind === 'wh') {
+      parts = [r.name, r.group !== WH_OTHERS ? r.group : '', pyLabel(r.area), r.cold ? '저온 ' + pyLabel(r.cold) : '상온', r.lic ? yymm(r.lic) + ' 등록' : ''];
+    } else if (r.kind === 'centers') {
       var C = S.data.centers;
       parts = [r.name, yymm(r.done) ? yymm(r.done) + '준공' : '', r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(C, r, '용도')), clean(g(C, r, '비고'))];
     } else {
@@ -282,6 +289,7 @@
   function row(label, val) { return has(val) ? '<tr><td>' + esc(label) + '</td><td>' + esc(val) + '</td></tr>' : ''; }
 
   function infoHtml(r) {
+    if (r.kind === 'wh') return whInfo(r);
     var h = '<button class="x" title="닫기">×</button><h3>' + esc(r.name) + '</h3>';
     if (r.kind === 'centers') {
       var C = S.data.centers;
@@ -313,7 +321,10 @@
     if (f.min != null && f.min !== '' && r.area < f.min) return false;
     if (f.max != null && f.max !== '' && r.area > f.max) return false;
     if (q && r.text.indexOf(q) < 0) return false;
-    if (r.kind === 'centers') {
+    if (r.kind === 'wh') {
+      if (skip !== 'groups' && !f.groups[r.group]) return false;
+      if (skip !== 'regions' && !f.regions[r.region]) return false;
+    } else if (r.kind === 'centers') {
       if (r.demolished) return false;
       if (skip !== 'regions' && !f.regions[r.region]) return false;
     } else {
@@ -342,7 +353,7 @@
     });
     h += '</div><input class="num" id="fmin" type="number" placeholder="최소(평)" value="' + (f.min != null && f.min !== '' ? f.min : '') + '">';
     h += '<span class="muted">~</span><input class="num" id="fmax" type="number" placeholder="최대(평)" value="' + (f.max != null && f.max !== '' ? f.max : '') + '"></div>';
-    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 비고 검색' : '프로젝트 · 주소 · 매도/매수자 · 임차인 검색') + '" value="' + esc(f.q) + '"></div>';
+    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 비고 검색' : S.tab === 'wh' ? '사업장명 · 업체 · 주소 검색' : '프로젝트 · 주소 · 매도/매수자 · 임차인 검색') + '" value="' + esc(f.q) + '"></div>';
     h += '<div class="count" id="count"></div>';
     var el = $('filters');
     el.innerHTML = h;
@@ -363,6 +374,7 @@
 
   // 지도 오른쪽 패널: 표시 항목(권역/평가/거래시기/구분) + 원 크기 범례
   function renderPanel() {
+    if (S.tab === 'wh') return whPanel();
     var f = S.f[S.tab], h = '';
     var countBy = function (skip, key) {
       var m = {};
@@ -417,7 +429,7 @@
   function renderCount(list, onMap) {
     var total = S.data[S.tab].rows.filter(function (r) { return !r.demolished; }).length;
     var c = $('count');
-    if (c) c.innerHTML = '<b>' + fmt(list.length) + '</b>' + (S.tab === 'centers' ? '곳' : '건') + ' / 전체 ' + fmt(total) + (list.length !== onMap ? ' · 지도 표시 ' + fmt(onMap) : '');
+    if (c) c.innerHTML = '<b>' + fmt(list.length) + '</b>' + (S.tab === 'deals' ? '건' : '곳') + ' / 전체 ' + fmt(total) + (list.length !== onMap ? ' · 지도 표시 ' + fmt(onMap) : '');
   }
 
   /* ---------------- 요약(한 줄 요약 + 작은 지표 카드) ---------------- */
@@ -440,6 +452,7 @@
   function qLabel(i) { return String(Math.floor(i / 4)).padStart(2, '0') + '.' + (i % 4 + 1) + 'Q'; }
 
   function renderKpis(list) {
+    if (S.tab === 'wh') return whKpis(list);
     var h = '', take = '';
     if (S.tab === 'centers') {
       var C = S.data.centers;
@@ -496,13 +509,244 @@
     $('take').innerHTML = take;
   }
 
+  /* ---------------- 물류창고업 등록 DB ---------------- */
+  // 업체 색: 전체 등록면적 상위 8곳은 고정 색(필터를 바꿔도 색 유지), 나머지 주요업체는 회색, 미분류는 연회색
+  var WH_PAL = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
+  var WH_OTHERS = '그 외(미분류)', WH_MINOR = '#8a92a3', WH_UNCLS = '#c9ced6';
+  var WH_REGIONS = ['수도권', '충청권', '동남권', '대경권', '호남권', '강원권', '제주권', '미상'];
+
+  function whPrep(d) {
+    var names = d.groups.map(function (g) { return g.name; });
+    var rows = d.rows.map(function (a, i) {
+      var g = names[a[2]] || WH_OTHERS;
+      return { kind: 'wh', id: 'w' + i, lat: a[0], lng: a[1], group: g, name: a[3] || '(이름 없음)', addr: a[4] || '', sido: a[5] || '미상',
+        gen: a[6] || 0, cold: a[7] || 0, yard: a[8] || 0, lic: a[9] || '', area: (a[6] || 0) + (a[7] || 0),
+        region: (d.regionOf || {})[a[5]] || '미상', text: [a[3], g, a[4], a[5]].join(' ').toLowerCase() };
+    });
+    var tot = {};
+    rows.forEach(function (r) { tot[r.group] = (tot[r.group] || 0) + r.area; });
+    var order = names.filter(function (n) { return n !== WH_OTHERS && tot[n]; }).sort(function (a, b) { return tot[b] - tot[a]; });
+    var color = {};
+    order.forEach(function (n, i) { color[n] = i < WH_PAL.length ? WH_PAL[i] : WH_MINOR; });
+    color[WH_OTHERS] = WH_UNCLS;
+    var W = { rows: rows, order: order.concat([WH_OTHERS]), color: color, asOf: d.asOf || '', core: {} };
+    d.groups.forEach(function (g) { W.core[g.name] = g.core; });
+    var f = S.f.wh;
+    W.order.forEach(function (n) { f.groups[n] = true; });
+    WH_REGIONS.forEach(function (n) { f.regions[n] = true; });
+    S.data.wh = W;
+  }
+
+  function whLoad() {
+    if (S.whLoading) return;
+    S.whLoading = true;
+    $('take').textContent = '물류창고업 등록 DB를 불러오는 중… (처음 한 번은 10~20초 걸릴 수 있습니다)';
+    $('kpis').innerHTML = '';
+    var url = CFG.apiUrl + (CFG.apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'set=wh&k=' + encodeURIComponent(S.pw || '') + '&t=' + Date.now();
+    fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (d) {
+      S.whLoading = false;
+      if (!d || !d.ok) { $('take').textContent = '물류창고업 등록 DB를 불러오지 못했습니다. ' + ((d && d.message) || ''); return; }
+      whPrep(d);
+      if (S.tab === 'wh') switchTab('wh');
+    }).catch(function (err) {
+      S.whLoading = false;
+      $('take').textContent = '물류창고업 등록 DB를 불러오지 못했습니다. (' + (err && err.message ? err.message : err) + ')';
+    });
+  }
+
+  function pyLabel(a) { return a >= 10000 ? (a / 10000).toFixed(1) + '만평' : fmt(a) + '평'; }
+
+  function whOn() { var f = S.f.wh; return S.data.wh.order.filter(function (n) { return f.groups[n]; }); }
+  function whSolo(name) {
+    var m = S.f.wh.groups, keys = Object.keys(m);
+    var only = keys.every(function (x) { return m[x] === (x === name); });
+    keys.forEach(function (x) { m[x] = only ? true : x === name; });   // 이미 그 업체만 보고 있으면 전체로
+    draw();
+  }
+
+  function whKpis(list) {
+    var W = S.data.wh, h = '';
+    var all = W.rows.length;
+    var sum = 0, gen = 0, cold = 0, cap = 0, by = {};
+    list.forEach(function (r) { sum += r.area; gen += r.gen; cold += r.cold; if (r.region === '수도권') cap += r.area; by[r.group] = (by[r.group] || 0) + r.area; });
+    var rank = Object.keys(by).filter(function (n) { return n !== WH_OTHERS; }).sort(function (a, b) { return by[b] - by[a]; });
+    var cut = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    var recent = list.filter(function (r) { return r.lic >= cut; });
+    var pct = function (v) { return sum ? Math.round(v / sum * 1000) / 10 : 0; };
+    h += tile('등록 센터', fmt(list.length), '곳', '영업중 전체 ' + fmt(all) + '곳 중');
+    h += tile('등록면적 합계', man(sum), '만평', '상온 ' + man(gen) + ' · 저온 ' + man(cold) + '만평');
+    h += tile('수도권 비중', pct(cap), '%', '수도권 ' + man(cap) + '만평');
+    h += tile('1위 업체', rank.length ? esc(rank[0]) : '-', '', rank.length ? pyLabel(by[rank[0]]) + ' · 점유율 ' + pct(by[rank[0]]) + '%' : '', 'txt');
+    h += tile('저온 비중', pct(cold), '%', '저온 ' + man(cold) + '만평');
+    h += tile('최근 12개월 신규', fmt(recent.length), '곳', pyLabel(recent.reduce(function (a, r) { return a + r.area; }, 0)) + ' 신규 등록');
+    $('kpis').innerHTML = h;
+    var on = whOn();
+    var cond = on.length === 1 ? "'" + esc(on[0]) + "' " : (on.length < W.order.length ? '선택한 ' + on.length + '개 업체의 ' : '');
+    var base = condText();
+    $('take').innerHTML = base + ' ' + cond + '물류창고업 등록 센터는 <b>' + fmt(list.length) + '곳</b>, 등록면적 <b>' + man(sum) + '만평</b>입니다. ' +
+      (on.length > 1 && rank.length ? '업체별로는 ' + rank.slice(0, 3).map(function (n) { return esc(n) + '(' + pct(by[n]) + '%)'; }).join('·') + ' 순이고, ' : '') +
+      '수도권 비중은 <b>' + pct(cap) + '%</b>입니다. <span class="muted">(등록면적 기준 — 자가물류 등 미등록 센터는 빠짐)</span>';
+    $('sumNote').textContent = '물류창고업 등록 DB ' + (W.asOf || '') + ' 수집 기준';
+  }
+
+  function whPanel() {
+    var W = S.data.wh, f = S.f.wh, h = '';
+    var cnt = {}, area = {};
+    filtered('groups').forEach(function (r) { cnt[r.group] = (cnt[r.group] || 0) + 1; area[r.group] = (area[r.group] || 0) + r.area; });
+    var rc = {};
+    filtered('regions').forEach(function (r) { rc[r.region] = (rc[r.region] || 0) + 1; });
+    h += '<div class="p-sec"><p class="p-title">업체</p><p class="p-hint">이름을 누르면 그 업체만 · 다시 누르면 전체 · □는 켜고 끄기</p>' +
+      '<div class="chips" style="margin-bottom:6px"><button class="chip" data-wh="all">전체</button><button class="chip" data-wh="named">미분류 숨기기</button></div>';
+    W.order.forEach(function (n) {
+      h += '<button class="opt' + (f.groups[n] ? ' on' : '') + '" data-whg="' + esc(n) + '"><span class="ck" data-ck="1"></span><span class="sw" style="background:' + W.color[n] + '"></span>' +
+        '<span class="lbl">' + esc(n) + '</span><span class="n">' + fmt(cnt[n] || 0) + '</span></button>';
+    });
+    h += '</div><div class="p-sec"><p class="p-title">권역</p><div class="chips">';
+    WH_REGIONS.forEach(function (k) { if (rc[k] || !f.regions[k]) h += '<button class="chip' + (f.regions[k] ? ' on' : '') + '" data-whr="' + k + '">' + k + ' <span class="mono">' + (rc[k] || 0) + '</span></button>'; });
+    h += '</div></div><div class="p-sec"><p class="p-title">지도 범위</p><div class="chips"><button class="chip" data-view="cap">수도권</button><button class="chip" data-view="kr">전국</button></div>' +
+      '<p class="p-note">영업중·등록면적이 있는 건만 표시합니다. 중복 등록 의심 건은 1건만 남겼습니다.</p></div>';
+    var el = $('panel');
+    el.innerHTML = h;
+    el.querySelectorAll('[data-whg]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        var n = b.getAttribute('data-whg');
+        if (e.target.getAttribute('data-ck') || e.shiftKey) { f.groups[n] = !f.groups[n]; draw(); } else whSolo(n);
+      });
+    });
+    el.querySelectorAll('[data-wh]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var v = b.getAttribute('data-wh');
+        W.order.forEach(function (n) { f.groups[n] = v === 'all' ? true : n !== WH_OTHERS; });
+        draw();
+      });
+    });
+    el.querySelectorAll('[data-whr]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        var k = b.getAttribute('data-whr'), m = f.regions;
+        if (e.shiftKey) { var only = Object.keys(m).every(function (x) { return m[x] === (x === k); }); Object.keys(m).forEach(function (x) { m[x] = only ? true : x === k; }); }
+        else m[k] = !m[k];
+        draw();
+      });
+    });
+    el.querySelectorAll('[data-view]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = window.kakao.maps;
+        if (b.getAttribute('data-view') === 'kr') { S.map.setLevel(13); S.map.setCenter(new k.LatLng(36.3, 127.8)); }
+        else { S.map.setLevel(10); S.map.setCenter(new k.LatLng(37.33, 127.22)); }
+      });
+    });
+  }
+
+  // 차트·표: 업체 필터는 빼고(다른 필터만 적용) 전체 업체를 보여 주고, 선택된 업체를 강조
+  function whCharts() {
+    var W = S.data.wh, f = S.f.wh, base = filtered('groups');
+    var agg = {}, total = { cnt: 0, area: 0, gen: 0, cold: 0, yard: 0, cap: 0, nCnt: 0, nArea: 0, reg: {} };
+    var cut = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    W.order.forEach(function (n) { agg[n] = { cnt: 0, area: 0, gen: 0, cold: 0, yard: 0, cap: 0, nCnt: 0, nArea: 0, reg: {} }; });
+    base.forEach(function (r) {
+      [agg[r.group], total].forEach(function (a) {
+        a.cnt++; a.area += r.area; a.gen += r.gen; a.cold += r.cold; a.yard += r.yard;
+        if (r.region === '수도권') a.cap += r.area;
+        if (r.lic >= cut) { a.nCnt++; a.nArea += r.area; }
+        a.reg[r.region] = (a.reg[r.region] || 0) + r.area;
+      });
+    });
+    var named = W.order.filter(function (n) { return n !== WH_OTHERS && agg[n].cnt; }).sort(function (a, b) { return agg[b].area - agg[a].area; });
+    var dim = function (n) { return f.groups[n] ? '' : ' dim'; };
+    var pct = function (v) { return total.area ? (v / total.area * 100).toFixed(1) : '0.0'; };
+
+    // 1) 업체별 등록면적 막대(가로)
+    var bars = named.slice(0, 15), maxA = Math.max.apply(null, bars.map(function (n) { return agg[n].area; }).concat([1]));
+    var boxW = $('whCharts').clientWidth || ($('kpis').clientWidth || 1000);
+    var rowH = 24, labW = 118, valW = 124, W0 = Math.max(380, Math.round(boxW >= 1000 ? boxW * 0.6 - 48 : boxW - 36)), plotW = W0 - labW - valW, H0 = bars.length * rowH + 6;
+    var svg = '<svg class="whbar" width="' + W0 + '" height="' + H0 + '" viewBox="0 0 ' + W0 + ' ' + H0 + '" role="img" aria-label="업체별 등록면적 막대그래프">';
+    bars.forEach(function (n, i) {
+      var a = agg[n], y = i * rowH + 4, w = Math.max(2, a.area / maxA * plotW);
+      svg += '<g class="bar' + dim(n) + '" data-solo="' + esc(n) + '"><title>' + esc(n) + ' · ' + fmt(a.area) + '평 (' + a.cnt + '곳) · 상온 ' + fmt(a.gen) + ' / 저온 ' + fmt(a.cold) + '</title>' +
+        '<rect class="hit" x="0" y="' + (y - 2) + '" width="' + W0 + '" height="' + rowH + '"></rect>' +
+        '<text class="lab" x="' + (labW - 8) + '" y="' + (y + 13) + '" text-anchor="end">' + esc(n) + '</text>' +
+        '<rect x="' + labW + '" y="' + (y + 2) + '" width="' + w + '" height="14" rx="3" fill="' + W.color[n] + '"></rect>' +
+        '<text class="val" x="' + (labW + w + 6) + '" y="' + (y + 13) + '">' + man(a.area) + '만평 · ' + pct(a.area) + '%</text></g>';
+    });
+    svg += '</svg>';
+
+    // 2) 업체별 비중 도넛(상위 8 + 기타 주요업체 + 미분류)
+    var top = named.slice(0, 8), restA = named.slice(8).reduce(function (s, n) { return s + agg[n].area; }, 0);
+    var parts = top.map(function (n) { return { n: n, v: agg[n].area, c: W.color[n] }; });
+    if (restA) parts.push({ n: '기타 주요업체', v: restA, c: WH_MINOR });
+    if (agg[WH_OTHERS].area) parts.push({ n: WH_OTHERS, v: agg[WH_OTHERS].area, c: WH_UNCLS });
+    var cx = 110, cy = 110, R = 100, r0 = 62, ang = -Math.PI / 2, tot = parts.reduce(function (s, p) { return s + p.v; }, 0) || 1;
+    var pie = '<svg class="whpie" viewBox="0 0 220 220" role="img" aria-label="업체별 비중 원그래프">';
+    parts.forEach(function (p) {
+      var a1 = ang, a2 = ang + p.v / tot * Math.PI * 2; ang = a2;
+      if (a2 - a1 >= Math.PI * 2 - 1e-6) a2 -= 1e-4;
+      var large = a2 - a1 > Math.PI ? 1 : 0;
+      var P = function (rr, t) { return (cx + rr * Math.cos(t)).toFixed(2) + ' ' + (cy + rr * Math.sin(t)).toFixed(2); };
+      pie += '<path class="seg' + (p.n === '기타 주요업체' ? '' : dim(p.n)) + '"' + (W.color[p.n] ? ' data-solo="' + esc(p.n) + '"' : '') + ' d="M' + P(R, a1) + ' A' + R + ' ' + R + ' 0 ' + large + ' 1 ' + P(R, a2) + ' L' + P(r0, a2) + ' A' + r0 + ' ' + r0 + ' 0 ' + large + ' 0 ' + P(r0, a1) + ' Z" fill="' + p.c + '"><title>' + esc(p.n) + ' ' + (p.v / tot * 100).toFixed(1) + '% · ' + man(p.v) + '만평</title></path>';
+    });
+    pie += '<text class="pie-num" x="' + cx + '" y="' + (cy - 2) + '" text-anchor="middle">' + man(total.area) + '</text><text class="pie-unit" x="' + cx + '" y="' + (cy + 16) + '" text-anchor="middle">만평 · ' + fmt(total.cnt) + '곳</text></svg>';
+    var lg = '<div class="pie-legend">';
+    parts.forEach(function (p) { lg += '<div class="li' + (p.n === '기타 주요업체' ? '' : dim(p.n)) + '"' + (W.color[p.n] ? ' data-solo="' + esc(p.n) + '"' : '') + '><i style="background:' + p.c + '"></i><span>' + esc(p.n) + '</span><b>' + (p.v / tot * 100).toFixed(1) + '%</b></div>'; });
+    lg += '</div>';
+
+    // 3) 업체별 현황 표
+    var t = '<table class="subtable whtab"><thead><tr><th>업체(그룹)</th><th class="r">등록건수</th><th class="r">합계(평)</th><th class="r">상온(평)</th><th class="r">저온(평)</th><th class="r">보관장소(평)</th><th class="r">점유율</th><th class="r">수도권 비중</th><th class="r">최근12개월 신규</th></tr></thead><tbody>';
+    named.concat(agg[WH_OTHERS].cnt ? [WH_OTHERS] : []).forEach(function (n) {
+      var a = agg[n];
+      t += '<tr class="' + dim(n) + '" data-solo="' + esc(n) + '"><td><span class="sw" style="background:' + W.color[n] + '"></span>' + esc(n) + '</td><td class="r">' + fmt(a.cnt) + '</td><td class="r">' + fmt(a.area) + '</td><td class="r">' + fmt(a.gen) + '</td><td class="r">' + fmt(a.cold) + '</td><td class="r">' + fmt(a.yard) + '</td><td class="r">' + pct(a.area) + '%</td><td class="r">' + (a.area ? (a.cap / a.area * 100).toFixed(1) : '0.0') + '%</td><td class="r">' + a.nCnt + '곳 · ' + fmt(a.nArea) + '평</td></tr>';
+    });
+    t += '<tr class="sum"><td>합계</td><td class="r">' + fmt(total.cnt) + '</td><td class="r">' + fmt(total.area) + '</td><td class="r">' + fmt(total.gen) + '</td><td class="r">' + fmt(total.cold) + '</td><td class="r">' + fmt(total.yard) + '</td><td class="r">100%</td><td class="r">' + (total.area ? (total.cap / total.area * 100).toFixed(1) : '0.0') + '%</td><td class="r">' + total.nCnt + '곳 · ' + fmt(total.nArea) + '평</td></tr></tbody></table>';
+
+    // 4) 업체 × 권역 등록면적 표
+    var t2 = '<table class="subtable whtab"><thead><tr><th>업체(그룹)</th>' + WH_REGIONS.filter(function (k) { return total.reg[k]; }).map(function (k) { return '<th class="r">' + k + '</th>'; }).join('') + '</tr></thead><tbody>';
+    var regs = WH_REGIONS.filter(function (k) { return total.reg[k]; });
+    named.concat(agg[WH_OTHERS].cnt ? [WH_OTHERS] : []).forEach(function (n) {
+      t2 += '<tr class="' + dim(n) + '" data-solo="' + esc(n) + '"><td><span class="sw" style="background:' + W.color[n] + '"></span>' + esc(n) + '</td>' + regs.map(function (k) { return '<td class="r">' + (agg[n].reg[k] ? fmt(agg[n].reg[k]) : '–') + '</td>'; }).join('') + '</tr>';
+    });
+    t2 += '<tr class="sum"><td>합계</td>' + regs.map(function (k) { return '<td class="r">' + fmt(total.reg[k]) + '</td>'; }).join('') + '</tr></tbody></table>';
+
+    var el = $('whCharts');
+    el.innerHTML = '<div class="sec-label"><h2>업체별 등록면적</h2><span>막대·원·표를 누르면 그 업체만 지도에 표시 · 업체 필터를 뺀 나머지 조건 기준</span></div>' +
+      '<div class="whgrid"><section class="card whcard"><div class="card-head"><b>업체별 등록면적</b><span class="count">상위 15개 업체 · 미분류 제외</span></div><div class="whbody">' + svg + '</div></section>' +
+      '<section class="card whcard"><div class="card-head"><b>업체별 비중</b><span class="count">등록면적 기준</span></div><div class="whbody pie-wrap">' + pie + lg + '</div></section></div>' +
+      '<section class="card whcard mt"><div class="card-head"><b>업체별 현황</b><span class="count">단위: 평 · 신규 = 인허가일 최근 12개월</span></div><div class="tablewrap">' + t + '</div></section>' +
+      '<section class="card whcard mt"><div class="card-head"><b>업체 × 권역 등록면적</b><span class="count">단위: 평</span></div><div class="tablewrap">' + t2 + '</div></section>';
+    el.querySelectorAll('[data-solo]').forEach(function (b) {
+      b.addEventListener('click', function () { whSolo(b.getAttribute('data-solo')); $('map').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    });
+  }
+
+  function whInfo(r) {
+    var h = '<button class="x" title="닫기">×</button><h3>' + esc(r.name) + '</h3>';
+    h += '<div class="tags"><span class="pill" style="color:' + (r.group === WH_OTHERS ? '#6b7280' : colorOf(r)) + '">' + esc(r.group === WH_OTHERS ? '미분류' : r.group) + '</span><span class="tag">' + esc(r.sido) + '</span>' + (r.cold ? '<span class="tag">저온 포함</span>' : '') + '</div><table>';
+    h += row('등록면적', fmt(r.area) + '평');
+    h += row('상온/저온', fmt(r.gen) + ' / ' + fmt(r.cold) + '평');
+    h += row('보관장소', r.yard ? fmt(r.yard) + '평' : '');
+    h += row('인허가일', r.lic);
+    h += row('주소', r.addr);
+    return h + '</table><button class="go">세부 내용 보기 ↓</button>';
+  }
+
+  function whDetail(r) {
+    var h = '<div class="dhead"><h2>' + esc(r.name) + '</h2><span class="pill" style="color:' + (r.group === WH_OTHERS ? '#6b7280' : colorOf(r)) + '">' + esc(r.group === WH_OTHERS ? '미분류' : r.group) + '</span><span class="tag">' + esc(r.region) + '</span></div>';
+    h += dkpis([['등록면적', fmt(r.area) + '평'], ['상온', fmt(r.gen) + '평'], ['저온', fmt(r.cold) + '평'], ['보관장소', r.yard ? fmt(r.yard) + '평' : ''], ['인허가일', r.lic]]);
+    h += '<div class="dgrid">';
+    h += card('기본 정보', kv([['업체(그룹)', r.group], ['사업장명', r.name], ['주소', r.addr], ['시도', r.sido], ['권역', r.region], ['인허가일', r.lic]]));
+    h += card('등록면적', kv([['상온(일반창고)', fmt(r.gen) + '평'], ['저온(냉동·냉장)', fmt(r.cold) + '평'], ['보관장소', fmt(r.yard) + '평 (합계 제외)'], ['합계', fmt(r.area) + '평 (' + fmt(r.area * 3.305785) + '㎡)']]));
+    h += '</div>';
+    h += related(r, 'centers', '이 위치의 수도권 물류센터 DB');
+    h += '<p class="geo">좌표: 행안부 원자료(중부원점 TM → 위경도 변환). 물류창고업 등록 기준이라 실제 센터 연면적과 다를 수 있습니다.</p>';
+    return h;
+  }
+
   /* ---------------- 탭 ---------------- */
   function switchTab(tab) {
     S.tab = tab;
-    $('mapLabel').textContent = tab === 'centers' ? '센터 위치' : '거래사례 위치';
-    $('mapNote').textContent = tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적';
+    $('mapLabel').textContent = tab === 'centers' ? '센터 위치' : tab === 'wh' ? '물류창고업 등록 센터 위치' : '거래사례 위치';
+    $('mapNote').textContent = tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : tab === 'wh' ? '원 색 = 업체(등록면적 상위 8곳) · 회색 = 그 외 · 연회색 = 미분류' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적';
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === tab); });
     if (!S.data) return;
+    if (tab === 'wh' && !S.data.wh) { $('whCharts').hidden = true; whLoad(); return; }
     renderFilters();
     draw();
     if (S.sel[tab]) renderDetail(S.sel[tab]);
@@ -525,7 +769,7 @@
   function renderDetail(r) {
     var el = $('detail');
     var h = '';
-    if (r.kind === 'centers') h = centerDetail(r); else h = dealDetail(r);
+    if (r.kind === 'centers') h = centerDetail(r); else if (r.kind === 'wh') h = whDetail(r); else h = dealDetail(r);
     el.innerHTML = h;
     el.querySelectorAll('[data-jump]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -543,7 +787,7 @@
   function resetFiltersFor(tab) {
     var f = S.f[tab];
     f.min = null; f.max = null; f.q = '';
-    ['regions', 'grades', 'years', 'types'].forEach(function (k) { if (f[k]) Object.keys(f[k]).forEach(function (x) { f[k][x] = true; }); });
+    ['regions', 'grades', 'years', 'types', 'groups'].forEach(function (k) { if (f[k]) Object.keys(f[k]).forEach(function (x) { f[k][x] = true; }); });
   }
 
   function used(set, names) { var u = {}; names.forEach(function (n) { u[n] = 1; }); return u; }
@@ -638,6 +882,16 @@
       ['최근 거래', function (r) { var C = S.data.centers; return [clean(g(C, r, '최근 거래시점')), has(g(C, r, '거래가격(억원)')) ? g(C, r, '거래가격(억원)') + '억' : ''].filter(Boolean).join(' '); }, null],
       ['지도', function (r) { return hasXY(r) ? '' : '좌표없음'; }, null, 'dim']
     ],
+    wh: [
+      ['사업장명', function (r) { return r.name; }, 'name'],
+      ['업체(그룹)', function (r) { return r.group; }, 'group', '', true],
+      ['시도', function (r) { return r.sido; }, 'sido'],
+      ['등록면적(평)', function (r) { return fmt(r.area); }, 'area', 'r'],
+      ['상온(평)', function (r) { return fmt(r.gen); }, 'gen', 'r'],
+      ['저온(평)', function (r) { return r.cold ? fmt(r.cold) : ''; }, 'cold', 'r'],
+      ['인허가일', function (r) { return r.lic; }, 'lic'],
+      ['지도', function (r) { return hasXY(r) ? '' : '좌표없음'; }, null, 'dim']
+    ],
     deals: [
       ['프로젝트', function (r) { return r.name; }, 'name'],
       ['거래시기', function (r) { return r.when; }, 'when'],
@@ -665,8 +919,8 @@
       if (typeof x === 'number' && typeof y === 'number') return (x - y) * f.dir;
       return String(x).localeCompare(String(y), 'ko') * f.dir;
     });
-    $('listTitle').textContent = S.tab === 'centers' ? '센터 목록' : '거래사례 목록';
-    $('listInfo').textContent = '필터 결과 ' + fmt(arr.length) + (S.tab === 'centers' ? '곳' : '건') + ' · 제목을 누르면 정렬, 행을 누르면 지도에서 위치를 보여줍니다';
+    $('listTitle').textContent = S.tab === 'centers' ? '센터 목록' : S.tab === 'wh' ? '물류창고업 등록 센터 목록' : '거래사례 목록';
+    $('listInfo').textContent = '필터 결과 ' + fmt(arr.length) + (S.tab === 'deals' ? '건' : '곳') + ' · 제목을 누르면 정렬, 행을 누르면 지도에서 위치를 보여줍니다';
     var h = '<thead><tr>';
     cols.forEach(function (c) { h += '<th class="' + (c[3] || '') + '"' + (c[2] ? ' data-sort="' + c[2] + '"' : '') + '>' + esc(c[0]) + (f.sort === c[2] ? (f.dir < 0 ? ' ▼' : ' ▲') : '') + '</th>'; });
     h += '</tr></thead><tbody>';
