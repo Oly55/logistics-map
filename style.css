@@ -93,6 +93,17 @@ button{cursor:pointer}
 .dot:hover{transform:scale(1.15);opacity:1}
 .hover-wrap{pointer-events:none}
 .hover{background:#fff;border:1px solid #8f98a8;border-radius:4px;padding:3px 8px;font-size:12px;font-weight:500;color:var(--fg);white-space:nowrap;box-shadow:0 2px 6px rgba(27,34,48,.18)}
+.dot.multi{position:relative;box-shadow:0 0 0 1px rgba(27,34,48,.28),0 0 0 3px #fff,0 0 0 4px rgba(27,34,48,.45)}
+.dot.multi:after{content:attr(data-n);position:absolute;right:-9px;top:-9px;min-width:13px;height:13px;padding:0 3px;border-radius:7px;background:var(--fg);color:#fff;font:600 9px/13px var(--f-mono);text-align:center;box-sizing:border-box}
+.hover.many{white-space:normal;padding:5px 9px}
+.hv-head{font-size:11px;color:var(--muted);margin-bottom:3px}
+.hv-line{white-space:nowrap}
+.hv-line+.hv-line{border-top:1px dashed var(--line);margin-top:3px;padding-top:3px}
+.cl-list{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.cl-item{display:flex;align-items:flex-start;gap:7px;text-align:left;border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 7px;font-size:.76rem;line-height:1.4}
+.cl-item:hover{border-color:var(--accent);background:var(--accent-soft)}
+.cl-item .sw{width:8px;height:8px;border-radius:50%;flex:none;margin-top:4px}
+.ibox .go.back{text-align:left}
 .dot.sel{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--fg);opacity:1}
 
 /* 클릭 박스 */
