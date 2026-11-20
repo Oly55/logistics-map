@@ -91,6 +91,8 @@ button{cursor:pointer}
 /* 지도 위 원 */
 .dot{border-radius:50%;border:1.5px solid rgba(255,255,255,.95);box-shadow:0 0 0 1px rgba(27,34,48,.28);cursor:pointer;opacity:.86;transition:transform .12s}
 .dot:hover{transform:scale(1.15);opacity:1}
+.hover-wrap{pointer-events:none}
+.hover{background:#fff;border:1px solid #8f98a8;border-radius:4px;padding:3px 8px;font-size:12px;font-weight:500;color:var(--fg);white-space:nowrap;box-shadow:0 2px 6px rgba(27,34,48,.18)}
 .dot.sel{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--fg);opacity:1}
 
 /* 클릭 박스 */
