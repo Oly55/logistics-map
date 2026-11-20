@@ -189,18 +189,30 @@
     closeInfo();
     var list = filtered();
     var onMap = list.filter(hasXY).sort(function (a, b) { return b.area - a.area; });
-    onMap.forEach(function (r, i) {
+    // 같은 위치(약 35m 안)의 센터는 원 하나로 묶음 — 원 크기·색은 가장 큰 센터 기준
+    var byKey = {}, clusters = [];
+    S.clusterOf = {};
+    onMap.forEach(function (r) {
+      var key = Math.round(r.lat * 3000) + '_' + Math.round(r.lng * 2500);
+      if (!byKey[key]) { byKey[key] = { rs: [] }; clusters.push(byKey[key]); }
+      byKey[key].rs.push(r);
+      S.clusterOf[r.id] = byKey[key];
+    });
+    clusters.forEach(function (cl, i) {
+      var r = cl.rs[0];
+      cl.rep = r;
       var el = document.createElement('div');
-      el.className = 'dot' + (S.sel[S.tab] === r ? ' sel' : '');
+      el.className = 'dot' + (cl.rs.length > 1 ? ' multi' : '') + (cl.rs.indexOf(S.sel[S.tab]) >= 0 ? ' sel' : '');
+      if (cl.rs.length > 1) el.setAttribute('data-n', cl.rs.length);
       var sz = dotSize(r.area);
       el.style.width = el.style.height = sz + 'px';
       el.style.background = colorOf(r);
-      el.addEventListener('mouseenter', function () { showHover(r); });
+      el.addEventListener('mouseenter', function () { showHover(cl.rs); });
       el.addEventListener('mouseleave', hideHover);
-      el.addEventListener('click', function (e) { e.stopPropagation(); select(r, false); });
+      el.addEventListener('click', function (e) { e.stopPropagation(); if (cl.rs.length > 1) openCluster(cl); else select(r, false); });
       var ov = new k.CustomOverlay({ position: new k.LatLng(r.lat, r.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 10 + i, clickable: true });
       ov.setMap(S.map);
-      S.dots.push({ ov: ov, el: el, r: r });
+      S.dots.push({ ov: ov, el: el, r: r, rs: cl.rs });
     });
     var noXY = list.length - onMap.length;
     var tip = $('maptip');
@@ -218,7 +230,7 @@
 
   function resizeDots() {
     S.dots.forEach(function (d) { var sz = dotSize(d.r.area); d.el.style.width = d.el.style.height = sz + 'px'; });
-    if (S.info) openInfo(S.info.r);
+    if (S.info) { if (S.info.cl && !S.info.r) openCluster(S.info.cl); else openInfo(S.info.r); }
   }
 
   // 마우스를 올리면 한 줄 요약(센터명, 준공연월, 면적, 상온/복합/저온, 특이사항)
@@ -237,16 +249,29 @@
     var t = parts.filter(Boolean).join(', ');
     return t.length > 70 ? t.slice(0, 69) + '…' : t;
   }
-  function showHover(r) {
+  function showHover(rs) {
     hideHover();
-    if (S.info && S.info.r === r) return;
+    var r = rs[0];
+    var cl0 = S.clusterOf[r.id];
+    if (S.info && ((S.info.cl && S.info.cl === cl0) || (S.info.r && S.clusterOf[S.info.r.id] === cl0))) return;   // 이미 박스가 열린 원
     var k = window.kakao.maps;
     var wrap = document.createElement('div');
     wrap.className = 'hover-wrap';
     wrap.style.paddingBottom = (dotSize(r.area) / 2 + 6) + 'px';
     var box = document.createElement('div');
-    box.className = 'hover';
-    box.textContent = hoverText(r);
+    box.className = 'hover' + (rs.length > 1 ? ' many' : '');
+    if (rs.length > 1) {
+      var head = document.createElement('div');
+      head.className = 'hv-head';
+      head.textContent = '같은 위치 ' + rs.length + '곳 · 클릭하면 골라 볼 수 있습니다';
+      box.appendChild(head);
+    }
+    rs.forEach(function (x) {
+      var line = document.createElement('div');
+      line.className = 'hv-line';
+      line.textContent = hoverText(x);
+      box.appendChild(line);
+    });
     wrap.appendChild(box);
     S.hover = new k.CustomOverlay({ position: new k.LatLng(r.lat, r.lng), content: wrap, xAnchor: 0.5, yAnchor: 1, zIndex: 99999 });
     S.hover.setMap(S.map);
@@ -257,7 +282,7 @@
   function select(r, pan) {
     hideHover();
     S.sel[S.tab] = r;
-    S.dots.forEach(function (d) { d.el.classList.toggle('sel', d.r === r); });
+    S.dots.forEach(function (d) { d.el.classList.toggle('sel', (d.rs || [d.r]).indexOf(r) >= 0); });
     if (hasXY(r)) {
       if (pan) S.map.panTo(new window.kakao.maps.LatLng(r.lat, r.lng));
       openInfo(r);
@@ -272,16 +297,46 @@
     if (S.info) { S.info.ov.setMap(null); S.info = null; }
   }
 
+  // 같은 위치에 여러 곳이 묶인 원을 클릭하면 목록 박스 → 하나를 고르면 그 센터 박스·세부 내용
+  function openCluster(cl) {
+    hideHover();
+    closeInfo();
+    var k = window.kakao.maps, rep0 = cl.rep;
+    var wrap = document.createElement('div');
+    wrap.style.paddingBottom = (dotSize(rep0.area) / 2 + 10) + 'px';
+    var h = '<div class="ibox"><button class="x" title="닫기">×</button><h3>같은 위치 ' + cl.rs.length + '곳</h3><div class="cl-list">';
+    cl.rs.forEach(function (r, i) {
+      h += '<button class="cl-item" data-i="' + i + '"><span class="sw" style="background:' + colorOf(r) + '"></span><span>' + esc(hoverText(r)) + '</span></button>';
+    });
+    wrap.innerHTML = h + '</div></div>';
+    wrap.querySelector('.x').addEventListener('click', function (e) { e.stopPropagation(); closeInfo(); });
+    wrap.querySelectorAll('.cl-item').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); select(cl.rs[Number(b.getAttribute('data-i'))], false); });
+    });
+    wrap.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+    var ov = new k.CustomOverlay({ position: new k.LatLng(rep0.lat, rep0.lng), content: wrap, xAnchor: 0.5, yAnchor: 1, zIndex: 100000, clickable: true });
+    ov.setMap(S.map);
+    S.info = { ov: ov, r: null, cl: cl };
+  }
+
   function openInfo(r) {
     closeInfo();
     var k = window.kakao.maps;
+    var cl = (S.clusterOf || {})[r.id], anchor = cl ? cl.rep : r;
     var wrap = document.createElement('div');
-    wrap.style.paddingBottom = (dotSize(r.area) / 2 + 10) + 'px';
+    wrap.style.paddingBottom = (dotSize(anchor.area) / 2 + 10) + 'px';
     wrap.innerHTML = '<div class="ibox">' + infoHtml(r) + '</div>';
     wrap.querySelector('.x').addEventListener('click', function (e) { e.stopPropagation(); closeInfo(); });
     wrap.querySelector('.go').addEventListener('click', function (e) { e.stopPropagation(); $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     wrap.addEventListener('mousedown', function (e) { e.stopPropagation(); });
-    var ov = new k.CustomOverlay({ position: new k.LatLng(r.lat, r.lng), content: wrap, xAnchor: 0.5, yAnchor: 1, zIndex: 100000, clickable: true });
+    if (cl && cl.rs.length > 1) {   // 묶인 원에서 고른 경우: 목록으로 돌아가기
+      var back = document.createElement('button');
+      back.className = 'go back';
+      back.textContent = '← 같은 위치 ' + cl.rs.length + '곳 목록';
+      back.addEventListener('click', function (e) { e.stopPropagation(); openCluster(cl); });
+      wrap.querySelector('.ibox').appendChild(back);
+    }
+    var ov = new k.CustomOverlay({ position: new k.LatLng(anchor.lat, anchor.lng), content: wrap, xAnchor: 0.5, yAnchor: 1, zIndex: 100000, clickable: true });
     ov.setMap(S.map);
     S.info = { ov: ov, r: r };
   }
