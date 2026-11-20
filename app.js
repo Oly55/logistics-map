@@ -163,7 +163,7 @@
     var k = window.kakao.maps;
     S.map = new k.Map($('map'), { center: new k.LatLng(37.33, 127.22), level: 10 });
     S.map.addControl(new k.ZoomControl(), k.ControlPosition.RIGHT);
-    k.event.addListener(S.map, 'zoom_changed', resizeDots);
+    k.event.addListener(S.map, 'zoom_changed', function () { hideHover(); resizeDots(); });
     k.event.addListener(S.map, 'click', closeInfo);
   }
 
@@ -192,7 +192,8 @@
       var sz = dotSize(r.area);
       el.style.width = el.style.height = sz + 'px';
       el.style.background = colorOf(r);
-      el.title = r.name + ' · ' + fmt(r.area) + '평';
+      el.addEventListener('mouseenter', function () { showHover(r); });
+      el.addEventListener('mouseleave', hideHover);
       el.addEventListener('click', function (e) { e.stopPropagation(); select(r, false); });
       var ov = new k.CustomOverlay({ position: new k.LatLng(r.lat, r.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 10 + i, clickable: true });
       ov.setMap(S.map);
@@ -215,7 +216,39 @@
     if (S.info) openInfo(S.info.r);
   }
 
+  // 마우스를 올리면 한 줄 요약(센터명, 준공연월, 면적, 상온/복합/저온, 특이사항)
+  function yymm(s) { var d = String(s || '').replace(/[^0-9]/g, ''); return d.length >= 6 ? d.slice(2, 4) + '.' + d.slice(4, 6) : ''; }
+  function hoverText(r) {
+    var parts;
+    if (r.kind === 'centers') {
+      var C = S.data.centers;
+      parts = [r.name, yymm(r.done) ? yymm(r.done) + '준공' : '', r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(C, r, '용도')), clean(g(C, r, '비고'))];
+    } else {
+      var D = S.data.deals;
+      parts = [r.name, r.when, r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(D, r, '상/저온')), has(g(D, r, '매매가(억원)')) ? g(D, r, '매매가(억원)') + '억' : '', clean(g(D, r, '비고'))];
+    }
+    var t = parts.filter(Boolean).join(', ');
+    return t.length > 70 ? t.slice(0, 69) + '…' : t;
+  }
+  function showHover(r) {
+    hideHover();
+    if (S.info && S.info.r === r) return;
+    var k = window.kakao.maps;
+    var wrap = document.createElement('div');
+    wrap.className = 'hover-wrap';
+    wrap.style.paddingBottom = (dotSize(r.area) / 2 + 6) + 'px';
+    var box = document.createElement('div');
+    box.className = 'hover';
+    box.textContent = hoverText(r);
+    wrap.appendChild(box);
+    S.hover = new k.CustomOverlay({ position: new k.LatLng(r.lat, r.lng), content: wrap, xAnchor: 0.5, yAnchor: 1, zIndex: 99999 });
+    S.hover.setMap(S.map);
+    if (wrap.parentElement) wrap.parentElement.style.pointerEvents = 'none';   // 마우스를 가로채 깜빡이지 않도록
+  }
+  function hideHover() { if (S.hover) { S.hover.setMap(null); S.hover = null; } }
+
   function select(r, pan) {
+    hideHover();
     S.sel[S.tab] = r;
     S.dots.forEach(function (d) { d.el.classList.toggle('sel', d.r === r); });
     if (hasXY(r)) {
