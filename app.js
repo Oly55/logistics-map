@@ -241,13 +241,13 @@
       parts = [r.name, r.group !== WH_OTHERS ? r.group : '', pyLabel(r.area), r.cold ? '저온 ' + pyLabel(r.cold) : '상온', r.lic ? yymm(r.lic) + ' 등록' : ''];
     } else if (r.kind === 'centers') {
       var C = S.data.centers;
-      parts = [r.name, yymm(r.done) ? yymm(r.done) + '준공' : '', r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(C, r, '용도')), clean(g(C, r, '비고'))];
+      parts = [r.name, yymm(r.done) ? yymm(r.done) + '준공' : '', r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(C, r, '용도')), r.owner ? '소유 ' + r.owner : '', clean(g(C, r, '비고'))];
     } else {
       var D = S.data.deals;
       parts = [r.name, r.when, r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(D, r, '상/저온')), has(g(D, r, '매매가(억원)')) ? g(D, r, '매매가(억원)') + '억' : '', clean(g(D, r, '비고'))];
     }
     var t = parts.filter(Boolean).join(', ');
-    return t.length > 70 ? t.slice(0, 69) + '…' : t;
+    return t.length > 90 ? t.slice(0, 89) + '…' : t;
   }
   function showHover(rs) {
     hideHover();
