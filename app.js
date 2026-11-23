@@ -141,13 +141,28 @@
     D.typeList = Object.keys(types).sort(function (a, b) { return a === '기타' ? 1 : b === '기타' ? -1 : a.localeCompare(b); });
     D.yearList = Object.keys(years).sort(function (a, b) { return a === '진행중' ? -1 : b === '진행중' ? 1 : b.localeCompare(a); });
     D.typeList.forEach(function (k) { S.f.deals.types[k] = true; });
-    D.yearList.forEach(function (k) { S.f.deals.years[k] = true; });
+    setPeriod(D, S.f.deals.period || '5y');   // 기본: 최근 5개년 + 진행중
     (D.grades || Object.keys(GRADE_COLORS)).forEach(function (k) { S.f.deals.grades[k] = true; });
 
     S.data = d;
     var up = function (s) { return String(s || '').replace(/^Update\s*:\s*/i, ''); };
     S.stampText = { centers: 'DB ' + (up(C.updated) || '-') + ' 기준', deals: '거래사례 ' + (up(D.updated) || '-') + ' 기준' };
     $('stamp').textContent = '불러온 시각 ' + (d.generatedAt || '');
+  }
+
+  // 거래시기 기간: '5y' = 진행중 + 올해 포함 최근 5개 연도, 'all' = 전체
+  var RECENT_YEARS = 5;
+  function recentFrom() { return new Date().getFullYear() - RECENT_YEARS + 1; }
+  function setPeriod(D, p) {
+    var f = S.f.deals, from = recentFrom();
+    f.period = p;
+    D.yearList.forEach(function (k) { f.years[k] = p === 'all' || k === '진행중' || (/^\d{4}$/.test(k) && +k >= from); });
+  }
+  function periodOf(D) {
+    var f = S.f.deals, from = recentFrom();
+    var isAll = D.yearList.every(function (k) { return f.years[k]; });
+    var is5 = D.yearList.every(function (k) { return !!f.years[k] === (k === '진행중' || (/^\d{4}$/.test(k) && +k >= from)); });
+    return isAll ? 'all' : is5 ? '5y' : 'custom';
   }
 
   function yearOf(w) {
@@ -468,7 +483,11 @@
       var D = S.data.deals;
       h += '<div class="p-sec"><p class="p-title">평가</p><p class="p-hint">시트의 셀 색 기준 · Shift+클릭은 그것만</p>' +
         opts('grades', Object.keys(GRADE_COLORS), GRADE_COLORS, countBy('grades', 'grade')) + '</div>';
-      h += '<div class="p-sec"><p class="p-title">거래시기</p>' + chips('years', D.yearList, countBy('years', 'year')) + '</div>';
+      var per = periodOf(D);
+      h += '<div class="p-sec"><p class="p-title">거래시기</p><div class="seg period" role="group" aria-label="기간">' +
+        '<button type="button" data-period="5y" class="' + (per === '5y' ? 'on' : '') + '">최근 5개년 (' + recentFrom() + '~)</button>' +
+        '<button type="button" data-period="all" class="' + (per === 'all' ? 'on' : '') + '">전체</button></div>' +
+        chips('years', D.yearList, countBy('years', 'year')) + '</div>';
       h += '<div class="p-sec"><p class="p-title">구분</p>' + chips('types', D.typeList, countBy('types', 'type')) + '</div>';
     }
     h += '<div class="p-sec"><p class="p-title">원 크기</p><p class="p-hint">연면적이 클수록 약간 커집니다</p><div class="sizes">';
@@ -479,6 +498,9 @@
     h += '</div><p class="p-note">멸실된 센터는 표시하지 않습니다. 같은 위치의 작은 원은 큰 원 위에 그려집니다.</p></div>';
     var el = $('panel');
     el.innerHTML = h;
+    el.querySelectorAll('[data-period]').forEach(function (b) {
+      b.addEventListener('click', function () { setPeriod(S.data.deals, b.getAttribute('data-period')); draw(); });
+    });
     el.querySelectorAll('[data-group]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         var m = f[b.getAttribute('data-group')], key = b.getAttribute('data-key');
@@ -672,6 +694,9 @@
       '<p class="p-note">영업중·등록면적이 있는 건만 표시합니다. 중복 등록 의심 건은 1건만 남겼습니다.</p></div>';
     var el = $('panel');
     el.innerHTML = h;
+    el.querySelectorAll('[data-period]').forEach(function (b) {
+      b.addEventListener('click', function () { setPeriod(S.data.deals, b.getAttribute('data-period')); draw(); });
+    });
     el.querySelectorAll('[data-whg]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         var n = b.getAttribute('data-whg');

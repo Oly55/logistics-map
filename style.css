@@ -83,6 +83,8 @@ button{cursor:pointer}
 .opt:not(.on){color:var(--muted)}
 .opt:not(.on) .sw{opacity:.35}
 .chips{display:flex;flex-wrap:wrap;gap:5px}
+.seg.period{display:inline-flex;margin:0 0 8px}
+.seg.period button{font-size:.76rem;padding:3px 10px}
 .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:2px 9px;font-size:.76rem;color:var(--muted)}
 .chip.on{background:var(--accent-soft);border-color:#c3cff0;color:var(--accent);font-weight:600}
 .sizes{display:flex;align-items:flex-end;gap:14px;margin-top:4px}
