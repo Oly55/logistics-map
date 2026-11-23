@@ -190,6 +190,28 @@
       b.addEventListener('click', function () { setMapType(b.getAttribute('data-t')); });
     });
     if (loadStore('lmap_type') === 'sky') setMapType('sky');
+    // 전체화면 — 필터·지도·범례 카드를 화면 가득 (Esc 또는 ✕로 닫기)
+    var mapCard = document.querySelector('.map-card'), fsb = $('fsbtn');
+    function fsOn() { return mapCard.classList.contains('fs'); }
+    function setFs(on) {
+      var c = S.map.getCenter();
+      mapCard.classList.toggle('fs', on);
+      document.body.classList.toggle('fs-lock', on);
+      fsb.textContent = on ? '✕' : '⛶';
+      fsb.title = on ? '전체화면 닫기 (Esc)' : '전체화면';
+      fsb.setAttribute('aria-label', fsb.title);
+      setTimeout(function () { S.map.relayout(); S.map.setCenter(c); }, 80);
+    }
+    fsb.addEventListener('click', function () {
+      var on = !fsOn();
+      try {
+        if (on && mapCard.requestFullscreen) mapCard.requestFullscreen().catch(function () {});
+        if (!on && document.fullscreenElement) document.exitFullscreen().catch(function () {});
+      } catch (e) { }
+      setFs(on);
+    });
+    document.addEventListener('fullscreenchange', function () { if (!document.fullscreenElement && fsOn()) setFs(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && fsOn() && !document.fullscreenElement) setFs(false); });
     k.event.addListener(S.map, 'zoom_changed', function () { hideHover(); resizeDots(); });
     k.event.addListener(S.map, 'click', closeInfo);
   }
