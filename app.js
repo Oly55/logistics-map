@@ -165,6 +165,16 @@
     var k = window.kakao.maps;
     S.map = new k.Map($('map'), { center: new k.LatLng(37.33, 127.22), level: 10 });
     S.map.addControl(new k.ZoomControl(), k.ControlPosition.RIGHT);
+    // 일반 / 위성(스카이뷰 + 도로·지명) 전환 — 마지막 선택을 기억
+    function setMapType(t) {
+      S.map.setMapTypeId(t === 'sky' ? k.MapTypeId.HYBRID : k.MapTypeId.ROADMAP);
+      [].forEach.call($('maptype').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-t') === t); });
+      store('lmap_type', t === 'sky' ? 'sky' : null);
+    }
+    [].forEach.call($('maptype').querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () { setMapType(b.getAttribute('data-t')); });
+    });
+    if (loadStore('lmap_type') === 'sky') setMapType('sky');
     k.event.addListener(S.map, 'zoom_changed', function () { hideHover(); resizeDots(); });
     k.event.addListener(S.map, 'click', closeInfo);
   }
