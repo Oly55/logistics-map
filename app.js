@@ -8,15 +8,25 @@
 
   var REGION_COLORS = ['#2747a8', '#0e8f7b', '#d4682a', '#7a4fb5', '#c8302f', '#1b88ad', '#a26a00', '#7b8494', '#3aa564', '#e5484d'];
   var GRADE_COLORS = { '굿딜': '#1f7a4d', '평범': '#3354c4', '별로': '#c8302f', 'KS captive': '#7b8494', '진행중': '#d4682a', '기타': '#8a3ffc' };
-  var AREA_CHIPS = { centers: [0, 5000, 10000, 20000, 30000, 50000], deals: [0, 10000, 20000, 30000], wh: [0, 1000, 3000, 10000, 30000] };
+  var AREA_CHIPS = { centers: [0, 5000, 10000, 20000, 30000, 50000], deals: [0, 10000, 20000, 30000], wh: [0, 1000, 3000, 10000, 30000], pipe: [0, 5000, 10000, 20000, 30000] };
+  // 공급 파이프라인 상태(시트 '상태' 값 → 표시 이름). 장기미착공·지연은 기본 숨김(칩을 눌러야 표시)
+  var PIPE_STATUS = [
+    { k: '공사중', raw: ['공사중'], c: '#d4682a', on: true },
+    { k: '준공 임박', raw: ['준공 임박(예상 경과)', '준공 임박'], c: '#c8302f', on: true },
+    { k: '최근 준공', raw: ['사용승인'], c: '#1f7a4d', on: true },
+    { k: '미착공', raw: ['미착공'], c: '#3354c4', on: true, note: '허가 후 3년 이내' },
+    { k: '지연·중단 의심', raw: ['지연·중단 의심'], c: '#a26a00', on: false, note: '예상 준공 시점이 1년 넘게 지남' },
+    { k: '장기미착공', raw: ['장기미착공'], c: '#9aa3b2', on: false, note: '허가 후 3년 넘게 미착공' }
+  ];
 
   var S = {
     data: null, tab: 'centers', map: null, dots: [], info: null, limit: PAGE,
-    sel: { centers: null, deals: null, wh: null },
+    sel: { centers: null, deals: null, wh: null, pipe: null },
     f: {
       centers: { min: 10000, max: null, regions: {}, q: '', sort: 'area', dir: -1 },
       deals: { min: null, max: null, grades: {}, years: {}, types: {}, q: '', sort: 'when', dir: -1 },
-      wh: { min: null, max: null, groups: {}, regions: {}, q: '', sort: 'area', dir: -1 }
+      wh: { min: null, max: null, groups: {}, regions: {}, q: '', sort: 'area', dir: -1 },
+      pipe: { min: null, max: null, statuses: {}, regions: {}, years: {}, q: '', sort: 'dueSort', dir: 1 }
     }
   };
 
@@ -225,6 +235,7 @@
   function dotSize(area) { return baseSize(area) * zoomFactor(); }
   function colorOf(r) {
     if (r.kind === 'wh') return S.data.wh.color[r.group] || WH_UNCLS;
+    if (r.kind === 'pipe') return S.data.pipe.color[r.status] || '#888';
     if (r.kind === 'centers') return S.data.centers.regionColor[r.region] || '#888';
     return GRADE_COLORS[r.grade] || GRADE_COLORS['기타'];
   }
@@ -284,7 +295,9 @@
   function yymm(s) { var d = String(s || '').replace(/[^0-9]/g, ''); return d.length >= 6 ? d.slice(2, 4) + '.' + d.slice(4, 6) : ''; }
   function hoverText(r) {
     var parts;
-    if (r.kind === 'wh') {
+    if (r.kind === 'pipe') {
+      parts = [r.name, r.status, r.due ? r.due.replace(/^20/, '') + ' 준공' + (r.status === '최근 준공' ? '' : '예정') : '', r.area ? (r.area / 10000).toFixed(1) + '만평' : '', r.sgg];
+    } else if (r.kind === 'wh') {
       parts = [r.name, r.group !== WH_OTHERS ? r.group : '', pyLabel(r.area), r.cold ? '저온 ' + pyLabel(r.cold) : '상온', r.lic ? yymm(r.lic) + ' 등록' : ''];
     } else if (r.kind === 'centers') {
       var C = S.data.centers;
@@ -392,6 +405,7 @@
 
   function infoHtml(r) {
     if (r.kind === 'wh') return whInfo(r);
+    if (r.kind === 'pipe') return pipeInfo(r);
     var h = '<button class="x" title="닫기">×</button><h3>' + esc(r.name) + '</h3>';
     if (r.kind === 'centers') {
       var C = S.data.centers;
@@ -423,7 +437,11 @@
     if (f.min != null && f.min !== '' && r.area < f.min) return false;
     if (f.max != null && f.max !== '' && r.area > f.max) return false;
     if (q && r.text.indexOf(q) < 0) return false;
-    if (r.kind === 'wh') {
+    if (r.kind === 'pipe') {
+      if (skip !== 'statuses' && !f.statuses[r.status]) return false;
+      if (skip !== 'regions' && !f.regions[r.region]) return false;
+      if (skip !== 'years' && !f.years[r.dueYear]) return false;
+    } else if (r.kind === 'wh') {
       if (skip !== 'groups' && !f.groups[r.group]) return false;
       if (skip !== 'regions' && !f.regions[r.region]) return false;
     } else if (r.kind === 'centers') {
@@ -455,7 +473,7 @@
     });
     h += '</div><input class="num" id="fmin" type="number" placeholder="최소(평)" value="' + (f.min != null && f.min !== '' ? f.min : '') + '">';
     h += '<span class="muted">~</span><input class="num" id="fmax" type="number" placeholder="최대(평)" value="' + (f.max != null && f.max !== '' ? f.max : '') + '"></div>';
-    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 비고 검색' : S.tab === 'wh' ? '사업장명 · 업체 · 주소 검색' : '프로젝트 · 주소 · 매도/매수자 · 임차인 검색') + '" value="' + esc(f.q) + '"></div>';
+    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 비고 검색' : S.tab === 'wh' ? '사업장명 · 업체 · 주소 검색' : S.tab === 'pipe' ? '건물명 · 주소 · 시군구 · 메모 검색' : '프로젝트 · 주소 · 매도/매수자 · 임차인 검색') + '" value="' + esc(f.q) + '"></div>';
     h += '<div class="count" id="count"></div>';
     var el = $('filters');
     el.innerHTML = h;
@@ -478,6 +496,7 @@
   function renderPanel() {
     if (S.tab === 'wh') return whPanel();
     var f = S.f[S.tab], h = '';
+    var P = S.data.pipe;
     var countBy = function (skip, key) {
       var m = {};
       filtered(skip).forEach(function (r) { m[r[key]] = (m[r[key]] || 0) + 1; });
@@ -497,7 +516,18 @@
       keys.forEach(function (k) { s += '<button class="chip' + (f[group][k] ? ' on' : '') + '" data-group="' + group + '" data-key="' + esc(k) + '">' + esc(k) + (counts[k] ? ' <span class="mono">' + counts[k] + '</span>' : '') + '</button>'; });
       return s + '</div>';
     };
-    if (S.tab === 'centers') {
+    if (S.tab === 'pipe') {
+      var stC = countBy('statuses', 'status'), stA = {};
+      filtered('statuses').forEach(function (r) { stA[r.status] = (stA[r.status] || 0) + r.area; });
+      h += '<div class="p-sec"><p class="p-title">상태</p><p class="p-hint">눌러서 켜고 끄기 · Shift+클릭은 그것만<br>지연·장기미착공은 기본 숨김</p>';
+      PIPE_STATUS.forEach(function (s) {
+        h += '<button class="opt' + (f.statuses[s.k] ? ' on' : '') + '" data-group="statuses" data-key="' + esc(s.k) + '" title="' + esc(s.note || '') + '"><span class="ck"></span><span class="sw" style="background:' + s.c + '"></span>' +
+          '<span class="lbl">' + esc(s.k) + '</span><span class="n">' + fmt(stC[s.k] || 0) + '</span></button>';
+      });
+      h += '<div class="chips" style="margin-top:6px"><button class="chip" data-pdef="1">기본(진행 중심)</button><button class="chip" data-pall="1">전체 상태</button></div></div>';
+      h += '<div class="p-sec"><p class="p-title">권역</p>' + chips('regions', P.regionList, countBy('regions', 'region')) + '</div>';
+      h += '<div class="p-sec"><p class="p-title">예상 준공 연도</p>' + chips('years', P.yearList, countBy('years', 'dueYear')) + '</div>';
+    } else if (S.tab === 'centers') {
       var C = S.data.centers;
       h += '<div class="p-sec"><p class="p-title">지도에 표시할 권역</p><p class="p-hint">눌러서 켜고 끄기 · Shift+클릭은 그것만</p>' +
         opts('regions', C.regionList, C.regionColor, countBy('regions', 'region'), stripNo) + '</div>';
@@ -517,9 +547,12 @@
       var s = baseSize(a);
       h += '<div><i style="width:' + s + 'px;height:' + s + 'px"></i>' + fmt(a / 10000) + '만평</div>';
     });
-    h += '</div><p class="p-note">멸실된 센터는 표시하지 않습니다. 같은 위치의 작은 원은 큰 원 위에 그려집니다.</p></div>';
+    h += '</div><p class="p-note">' + (S.tab === 'pipe' ? '건축HUB 인허가(창고시설 신축·개축·재축) 기준 · 예상준공은 착공일 + 규모별 표준 공기로 추정합니다.' : '멸실된 센터는 표시하지 않습니다.') + ' 같은 위치의 작은 원은 큰 원 위에 그려집니다.</p></div>';
     var el = $('panel');
     el.innerHTML = h;
+    el.querySelectorAll('[data-pdef],[data-pall]').forEach(function (b) {
+      b.addEventListener('click', function () { var all = b.hasAttribute('data-pall'); PIPE_STATUS.forEach(function (s) { f.statuses[s.k] = all || s.on; }); draw(); });
+    });
     el.querySelectorAll('[data-period]').forEach(function (b) {
       b.addEventListener('click', function () { setPeriod(S.data.deals, b.getAttribute('data-period')); draw(); });
     });
@@ -538,7 +571,7 @@
   function renderCount(list, onMap) {
     var total = S.data[S.tab].rows.filter(function (r) { return !r.demolished; }).length;
     var c = $('count');
-    if (c) c.innerHTML = '<b>' + fmt(list.length) + '</b>' + (S.tab === 'deals' ? '건' : '곳') + ' / 전체 ' + fmt(total) + (list.length !== onMap ? ' · 지도 표시 ' + fmt(onMap) : '');
+    if (c) c.innerHTML = '<b>' + fmt(list.length) + '</b>' + (S.tab === 'deals' || S.tab === 'pipe' ? '건' : '곳') + ' / 전체 ' + fmt(total) + (list.length !== onMap ? ' · 지도 표시 ' + fmt(onMap) : '');
   }
 
   /* ---------------- 요약(한 줄 요약 + 작은 지표 카드) ---------------- */
@@ -553,7 +586,12 @@
     var f = S.f[S.tab], parts = [];
     if (f.min && (f.max == null || f.max === '')) parts.push('연면적 ' + areaLabel(f.min).replace('↑', ' 이상'));
     else if (f.min || f.max) parts.push('연면적 ' + (f.min ? fmt(f.min) : '0') + '~' + (f.max ? fmt(f.max) : '') + '평');
-    ['regions', 'grades', 'years', 'types'].forEach(function (k) { if (f[k] && Object.keys(f[k]).some(function (x) { return !f[k][x]; })) parts.push('일부 ' + { regions: '권역', grades: '평가', years: '거래시기', types: '구분' }[k]); });
+    ['regions', 'grades', 'years', 'types'].forEach(function (k) { if (f[k] && Object.keys(f[k]).some(function (x) { return !f[k][x]; })) parts.push('일부 ' + { regions: '권역', grades: '평가', years: S.tab === 'pipe' ? '준공연도' : '거래시기', types: '구분' }[k]); });
+    if (f.statuses) {
+      var dflt = PIPE_STATUS.every(function (s) { return !!f.statuses[s.k] === s.on; });
+      var allOn = PIPE_STATUS.every(function (s) { return f.statuses[s.k]; });
+      if (allOn) parts.push('전체 상태'); else if (!dflt) parts.push('일부 상태');
+    }
     if (f.q) parts.push("검색어 '" + esc(f.q) + "'");
     return parts.length ? parts.join(' · ') + ' 조건에서' : '전체 기준으로';
   }
@@ -562,6 +600,7 @@
 
   function renderKpis(list) {
     if (S.tab === 'wh') return whKpis(list);
+    if (S.tab === 'pipe') return pipeKpis(list);
     var h = '', take = '';
     if (S.tab === 'centers') {
       var C = S.data.centers;
@@ -851,14 +890,129 @@
     return h;
   }
 
+  /* ---------------- 공급 파이프라인 ---------------- */
+  function pipeStatus(raw) {
+    raw = String(raw || '').trim();
+    for (var i = 0; i < PIPE_STATUS.length; i++) if (PIPE_STATUS[i].raw.indexOf(raw) >= 0 || PIPE_STATUS[i].k === raw) return i;
+    return -1;
+  }
+
+  function pipePrep(d) {
+    var P = d.pipe;
+    P.ix = index(P.headers);
+    var regions = {}, years = {};
+    P.color = {};
+    PIPE_STATUS.forEach(function (s) { P.color[s.k] = s.c; });
+    P.rows.forEach(function (r) {
+      r.kind = 'pipe'; r.id = 'p' + r.r;
+      var addr = g(P, r, '소재지(지번)');
+      r.name = clean(g(P, r, '건물명')) || (addr.split(' ').slice(-2).join(' ').replace(/번지/g, '') + ' 창고');
+      r.area = num(g(P, r, '연면적(평)')) || 0;
+      var si = pipeStatus(g(P, r, '상태'));
+      r.statusIx = si < 0 ? 99 : si;
+      r.status = si < 0 ? (clean(g(P, r, '상태')) || '미상') : PIPE_STATUS[si].k;
+      if (si < 0 && !P.color[r.status]) P.color[r.status] = '#888';
+      r.region = clean(g(P, r, '권역')) || '미상';
+      r.sgg = clean(g(P, r, '시군구'));
+      var done = String(g(P, r, '사용승인일')).replace(/[^0-9]/g, '');
+      r.due = r.status === '최근 준공' && done.length >= 6 ? done.slice(0, 4) + '.' + done.slice(4, 6) : clean(g(P, r, '예상준공'));
+      r.dueSort = r.due || '9999.99';
+      r.dueYear = /^\d{4}/.test(r.due) ? r.due.slice(0, 4) : '미정';
+      r.permit = String(g(P, r, '허가일')).replace(/[^0-9]/g, '');
+      r.start = String(g(P, r, '실착공일')).replace(/[^0-9]/g, '');
+      r.text = [r.name, addr, r.sgg, g(P, r, '광역(특별)시·도'), g(P, r, '메모'), r.status].join(' ').toLowerCase();
+      regions[r.region] = 1; years[r.dueYear] = 1;
+    });
+    P.regionList = Object.keys(regions).sort();
+    P.yearList = Object.keys(years).sort(function (a, b) { return a === '미정' ? 1 : b === '미정' ? -1 : a.localeCompare(b); });
+    var f = S.f.pipe;
+    PIPE_STATUS.forEach(function (s) { f.statuses[s.k] = s.on; });
+    Object.keys(P.color).forEach(function (k) { if (f.statuses[k] === undefined) f.statuses[k] = true; });
+    P.regionList.forEach(function (k) { f.regions[k] = true; });
+    P.yearList.forEach(function (k) { f.years[k] = true; });
+    P.generatedAt = d.generatedAt || '';
+    S.data.pipe = P;
+  }
+
+  function pipeLoad() {
+    if (S.pipeLoading) return;
+    S.pipeLoading = true;
+    $('take').textContent = '공급 파이프라인을 불러오는 중…';
+    $('kpis').innerHTML = '';
+    var url = CFG.apiUrl + (CFG.apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'set=pipe&k=' + encodeURIComponent(S.pw || '') + '&t=' + Date.now();
+    fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (d) {
+      S.pipeLoading = false;
+      if (!d || !d.ok || !d.pipe) { $('take').textContent = '공급 파이프라인을 불러오지 못했습니다. ' + ((d && d.message) || '(서버에 파이프라인 기능이 아직 배포되지 않았을 수 있습니다)'); return; }
+      pipePrep(d);
+      if (S.tab === 'pipe') switchTab('pipe');
+    }).catch(function (err) {
+      S.pipeLoading = false;
+      $('take').textContent = '공급 파이프라인을 불러오지 못했습니다. (' + (err && err.message ? err.message : err) + ')';
+    });
+  }
+
+  function pipeKpis(list) {
+    var P = S.data.pipe, f = S.f.pipe, h = '';
+    var sumA = function (arr) { return arr.reduce(function (a, r) { return a + (r.area || 0); }, 0); };
+    var by = function (k) { return list.filter(function (r) { return r.status === k; }); };
+    var yr = String(new Date().getFullYear()), ny = String(+yr + 1);
+    var building = list.filter(function (r) { return r.status !== '최근 준공'; });
+    var dueThis = building.filter(function (r) { return r.dueYear === yr; }), dueNext = building.filter(function (r) { return r.dueYear === ny; });
+    var con = by('공사중'), soon = by('준공 임박'), wait = by('미착공'), done = by('최근 준공');
+    var sum = sumA(list);
+    h += tile('표시 건수', fmt(list.length), '건', '전체 ' + fmt(P.rows.length) + '건 중');
+    h += tile('연면적 합계', man(sum), '만평', '평균 ' + fmt(list.length ? sum / list.length : 0) + '평');
+    h += tile('공사중', fmt(con.length + soon.length), '건', man(sumA(con) + sumA(soon)) + '만평 · 준공 임박 ' + soon.length + '건');
+    h += tile(yr.slice(2) + '년 예상준공', man(sumA(dueThis)), '만평', dueThis.length + '건 (미준공)');
+    h += tile(ny.slice(2) + '년 예상준공', man(sumA(dueNext)), '만평', dueNext.length + '건');
+    h += tile('미착공(3년 이내)', fmt(wait.length), '건', man(sumA(wait)) + '만평');
+    $('kpis').innerHTML = h;
+    var hidden = P.rows.filter(function (r) { return !f.statuses[r.status]; });
+    $('take').innerHTML = condText() + ' 공급 파이프라인은 <b>' + fmt(list.length) + '건 · ' + man(sum) + '만평</b>입니다. 공사중 <b>' + fmt(con.length + soon.length) + '건 · ' + man(sumA(con) + sumA(soon)) + '만평</b>' +
+      (soon.length ? '(준공 임박 ' + soon.length + '건 포함)' : '') + ', 미착공 ' + fmt(wait.length) + '건 · ' + man(sumA(wait)) + '만평' + (done.length ? ', 최근 준공 ' + done.length + '건' : '') + '입니다.' +
+      (hidden.length ? ' <span class="muted">숨긴 상태 ' + fmt(hidden.length) + '건(' + man(sumA(hidden)) + '만평)은 오른쪽 상태에서 켤 수 있습니다.</span>' : '');
+    $('sumNote').textContent = '공급 파이프라인 · 건축HUB 인허가 기준(매월 갱신)';
+  }
+
+  function pipeInfo(r) {
+    var P = S.data.pipe, G = function (n) { return g(P, r, n); };
+    var h = '<button class="x" title="닫기">×</button><h3>' + esc(r.name) + '</h3>';
+    h += '<div class="tags"><span class="pill" style="color:' + colorOf(r) + '">' + esc(r.status) + '</span>' + (has(G('건축구분')) ? '<span class="tag">' + esc(G('건축구분')) + '</span>' : '') + '<span class="tag">' + esc(stripNo(r.region)) + '</span></div><table>';
+    h += row('연면적', r.area ? fmt(r.area) + '평' : '');
+    h += row('허가', ymd(G('허가일')));
+    h += row('착공', ymd(G('실착공일')) || (has(G('착공예정일')) ? ymd(G('착공예정일')) + ' (예정)' : ''));
+    h += row(r.status === '최근 준공' ? '사용승인' : '예상준공', r.status === '최근 준공' ? ymd(G('사용승인일')) : r.due);
+    h += row('메모', clean(G('메모')));
+    return h + '</table><button class="go">세부 내용 보기 ↓</button>';
+  }
+
+  function pipeDetail(r) {
+    var P = S.data.pipe, G = function (n) { return g(P, r, n); };
+    var U = used(P, ['단계', '상태', '건물명', '소재지(지번)', '권역', '광역(특별)시·도', '시군구', '연면적(평)', '연면적(㎡)', '건축구분', '허가일', '착공예정일', '실착공일', '경과(개월)', '예상공기(개월)', '예상준공', '예상준공분기', '사용승인일', '인허가PK', '메모']);
+    var h = '<div class="dhead"><h2>' + esc(r.name) + '</h2><span class="pill" style="color:' + colorOf(r) + '">' + esc(r.status) + '</span><span class="tag">' + esc(stripNo(r.region)) + '</span><span class="muted">시트 ' + r.r + '행</span></div>';
+    h += dkpis([['연면적', r.area ? fmt(r.area) + '평' : ''], ['상태', r.status], ['허가', ymd(G('허가일'))], ['착공', ymd(G('실착공일'))], [r.status === '최근 준공' ? '사용승인' : '예상준공', r.status === '최근 준공' ? ymd(G('사용승인일')) : r.due]]);
+    h += '<div class="dgrid">';
+    h += card('기본 정보', kv([['단계', G('단계')], ['상태(시트)', G('상태')], ['지번 주소', G('소재지(지번)')], ['광역시·도', G('광역(특별)시·도')], ['시군구', G('시군구')], ['권역', stripNo(G('권역'))], ['건축구분', G('건축구분')], ['메모', G('메모')]]));
+    h += card('규모', kv([['연면적', r.area ? fmt(r.area) + '평' : ''], ['연면적(㎡)', has(G('연면적(㎡)')) ? G('연면적(㎡)') + '㎡' : '']]));
+    h += card('일정', kv([['허가일', ymd(G('허가일'))], ['착공예정일', ymd(G('착공예정일'))], ['실착공일', ymd(G('실착공일'))], ['경과', has(G('경과(개월)')) ? G('경과(개월)') + '개월(착공 기준)' : ''], ['예상공기', has(G('예상공기(개월)')) ? G('예상공기(개월)') + '개월' : ''], ['예상준공', [G('예상준공'), G('예상준공분기')].filter(has).join(' · ')], ['사용승인일', ymd(G('사용승인일'))], ['인허가PK', G('인허가PK')]]));
+    var more = rest(P, r, U);
+    if (more) h += card('기타 항목', more);
+    h += '</div>';
+    h += related(r, 'centers', '이 위치의 수도권 물류센터 DB');
+    h += related(r, 'deals', '이 위치의 거래사례');
+    h += geoNote(r);
+    return h;
+  }
+
   /* ---------------- 탭 ---------------- */
   function switchTab(tab) {
     S.tab = tab;
-    $('mapLabel').textContent = tab === 'centers' ? '센터 위치' : tab === 'wh' ? '물류창고업 등록 센터 위치' : '거래사례 위치';
-    $('mapNote').textContent = tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : tab === 'wh' ? '원 색 = 업체(등록면적 상위 8곳) · 회색 = 그 외 · 연회색 = 미분류' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적';
+    $('mapLabel').textContent = tab === 'centers' ? '센터 위치' : tab === 'wh' ? '물류창고업 등록 센터 위치' : tab === 'pipe' ? '공급 파이프라인 위치' : '거래사례 위치';
+    $('mapNote').textContent = tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : tab === 'wh' ? '원 색 = 업체(등록면적 상위 8곳) · 회색 = 그 외 · 연회색 = 미분류' : tab === 'pipe' ? '원 색 = 상태 · 크기 = 연면적 · 지연·장기미착공은 기본 숨김' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적';
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === tab); });
     if (!S.data) return;
     if (tab === 'wh' && !S.data.wh) { $('whCharts').hidden = true; whLoad(); return; }
+    if (tab === 'pipe' && !S.data.pipe) { $('whCharts').hidden = true; pipeLoad(); return; }
     renderFilters();
     draw();
     if (S.sel[tab]) renderDetail(S.sel[tab]);
@@ -881,7 +1035,7 @@
   function renderDetail(r) {
     var el = $('detail');
     var h = '';
-    if (r.kind === 'centers') h = centerDetail(r); else if (r.kind === 'wh') h = whDetail(r); else h = dealDetail(r);
+    if (r.kind === 'centers') h = centerDetail(r); else if (r.kind === 'wh') h = whDetail(r); else if (r.kind === 'pipe') h = pipeDetail(r); else h = dealDetail(r);
     el.innerHTML = h;
     el.querySelectorAll('[data-jump]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -899,7 +1053,7 @@
   function resetFiltersFor(tab) {
     var f = S.f[tab];
     f.min = null; f.max = null; f.q = '';
-    ['regions', 'grades', 'years', 'types', 'groups'].forEach(function (k) { if (f[k]) Object.keys(f[k]).forEach(function (x) { f[k][x] = true; }); });
+    ['regions', 'grades', 'years', 'types', 'groups', 'statuses'].forEach(function (k) { if (f[k]) Object.keys(f[k]).forEach(function (x) { f[k][x] = true; }); });
   }
 
   function used(set, names) { var u = {}; names.forEach(function (n) { u[n] = 1; }); return u; }
@@ -994,6 +1148,16 @@
       ['최근 거래', function (r) { var C = S.data.centers; return [clean(g(C, r, '최근 거래시점')), has(g(C, r, '거래가격(억원)')) ? g(C, r, '거래가격(억원)') + '억' : ''].filter(Boolean).join(' '); }, null],
       ['지도', function (r) { return hasXY(r) ? '' : '좌표없음'; }, null, 'dim']
     ],
+    pipe: [
+      ['건물명', function (r) { return r.name; }, 'name'],
+      ['상태', function (r) { return r.status; }, 'statusIx', '', true],
+      ['연면적(평)', function (r) { return r.area ? fmt(r.area) : ''; }, 'area', 'r'],
+      ['시군구', function (r) { return r.sgg; }, 'sgg'],
+      ['허가', function (r) { return ymd(g(S.data.pipe, r, '허가일')); }, 'permit'],
+      ['착공', function (r) { return ymd(g(S.data.pipe, r, '실착공일')); }, 'start'],
+      ['예상준공', function (r) { return r.due; }, 'dueSort'],
+      ['지도', function (r) { return hasXY(r) ? '' : '좌표없음'; }, null, 'dim']
+    ],
     wh: [
       ['사업장명', function (r) { return r.name; }, 'name'],
       ['업체(그룹)', function (r) { return r.group; }, 'group', '', true],
@@ -1031,7 +1195,7 @@
       if (typeof x === 'number' && typeof y === 'number') return (x - y) * f.dir;
       return String(x).localeCompare(String(y), 'ko') * f.dir;
     });
-    $('listTitle').textContent = S.tab === 'centers' ? '센터 목록' : S.tab === 'wh' ? '물류창고업 등록 센터 목록' : '거래사례 목록';
+    $('listTitle').textContent = S.tab === 'centers' ? '센터 목록' : S.tab === 'wh' ? '물류창고업 등록 센터 목록' : S.tab === 'pipe' ? '공급 파이프라인 목록' : '거래사례 목록';
     $('listInfo').textContent = '필터 결과 ' + fmt(arr.length) + (S.tab === 'deals' ? '건' : '곳') + ' · 제목을 누르면 정렬, 행을 누르면 지도에서 위치를 보여줍니다';
     var h = '<thead><tr>';
     cols.forEach(function (c) { h += '<th class="' + (c[3] || '') + '"' + (c[2] ? ' data-sort="' + c[2] + '"' : '') + '>' + esc(c[0]) + (f.sort === c[2] ? (f.dir < 0 ? ' ▼' : ' ▲') : '') + '</th>'; });
