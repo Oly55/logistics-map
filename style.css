@@ -248,3 +248,10 @@ body.fs-lock{overflow:hidden}
   .search{width:100%}
   .count{margin-left:0}
 }
+/* 다른 지도 위치(작은 점) — 클릭·마우스오버 없음 */
+.ghost{pointer-events:none;box-sizing:border-box}
+.ghost.g-pipe{width:7px;height:7px;background:#1b2230;border:1px solid #fff;transform:rotate(45deg);opacity:.85}
+.ghost.g-center{width:6px;height:6px;border-radius:50%;background:#5d6678;border:1px solid #fff;opacity:.65}
+.opt .sw.gsw.g-pipe{width:8px;height:8px;background:#1b2230;border-radius:1px;transform:rotate(45deg);margin:0 1px}
+.opt .sw.gsw.g-center{width:7px;height:7px;background:#5d6678}
+.golink{margin-top:4px}
