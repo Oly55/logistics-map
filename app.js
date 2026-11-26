@@ -18,6 +18,9 @@
     { k: '지연·중단 의심', raw: ['지연·중단 의심'], c: '#a26a00', on: false, note: '예상 준공 시점이 1년 넘게 지남' },
     { k: '장기미착공', raw: ['장기미착공'], c: '#9aa3b2', on: false, note: '허가 후 3년 넘게 미착공' }
   ];
+  // 물류센터 DB 지도 ↔ 공급 파이프라인 지도에 서로를 '작은 점'으로 함께 표시(클릭·마우스오버 없음)
+  var GHOST_PIPE = ['공사중', '준공 임박', '최근 준공', '미착공'];
+  var GHOST_ON = { pipe: true, centers: true };
 
   var S = {
     data: null, tab: 'centers', map: null, dots: [], info: null, limit: PAGE,
@@ -284,6 +287,38 @@
     S.limit = PAGE;
     renderList(list);
     if (S.sel[S.tab] && hasXY(S.sel[S.tab]) && list.indexOf(S.sel[S.tab]) >= 0) openInfo(S.sel[S.tab]);
+    drawGhosts();
+    if (S.tab === 'centers' && !S.data.pipe) pipeLoad(true);
+  }
+
+  // 다른 지도의 위치를 작은 점으로(가장 아래 층, 클릭·마우스오버 없음)
+  function ghostRows(ignoreOn) {
+    if (!S.data) return [];
+    if (S.tab === 'centers' && S.data.pipe && (ignoreOn || GHOST_ON.pipe)) return S.data.pipe.rows.filter(function (r) { return hasXY(r) && GHOST_PIPE.indexOf(r.status) >= 0; });
+    if (S.tab === 'pipe' && S.data.centers && (ignoreOn || GHOST_ON.centers)) return S.data.centers.rows.filter(function (r) { return hasXY(r) && !r.demolished; });
+    return [];
+  }
+  function drawGhosts() {
+    var k = window.kakao && window.kakao.maps;
+    (S.ghosts || []).forEach(function (o) { o.setMap(null); });
+    S.ghosts = [];
+    if (!k || !S.map) return;
+    ghostRows().forEach(function (r) {
+      var el = document.createElement('div');
+      el.className = 'ghost ' + (r.kind === 'pipe' ? 'g-pipe' : 'g-center');
+      var ov = new k.CustomOverlay({ position: new k.LatLng(r.lat, r.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 1, clickable: false });
+      ov.setMap(S.map);
+      S.ghosts.push(ov);
+    });
+  }
+  function ghostSec() {
+    var isC = S.tab === 'centers', key = isC ? 'pipe' : 'centers', n = ghostRows(true).length;
+    var ready = isC ? !!S.data.pipe : !!S.data.centers;
+    return '<div class="p-sec"><p class="p-title">' + (isC ? '공급 파이프라인 함께 보기' : '기존 물류센터 함께 보기') + '</p>' +
+      '<button class="opt' + (GHOST_ON[key] ? ' on' : '') + '" data-ghost="' + key + '"><span class="ck"></span><span class="sw gsw ' + (isC ? 'g-pipe' : 'g-center') + '"></span>' +
+      '<span class="lbl">' + (isC ? '진행 중인 현장' : '물류센터 DB') + '</span><span class="n">' + (ready ? fmt(n) : '…') + '</span></button>' +
+      '<p class="p-hint">' + (isC ? '공사중·준공 임박·최근 준공·미착공 위치만 작은 ◆로 표시합니다 (클릭 안 됨)' : '기존 센터 위치만 작은 점으로 표시합니다 (클릭 안 됨)') + '</p>' +
+      '<button class="chip golink" data-goto="' + key + '">' + (isC ? '공급 파이프라인 지도로 →' : '물류센터 DB 지도로 →') + '</button></div>';
   }
 
   function resizeDots() {
@@ -542,6 +577,7 @@
         chips('years', D.yearList, countBy('years', 'year')) + '</div>';
       h += '<div class="p-sec"><p class="p-title">구분</p>' + chips('types', D.typeList, countBy('types', 'type')) + '</div>';
     }
+    if (S.tab === 'centers' || S.tab === 'pipe') h += ghostSec();
     h += '<div class="p-sec"><p class="p-title">원 크기</p><p class="p-hint">연면적이 클수록 약간 커집니다</p><div class="sizes">';
     [10000, 30000, 100000].forEach(function (a) {
       var s = baseSize(a);
@@ -550,6 +586,12 @@
     h += '</div><p class="p-note">' + (S.tab === 'pipe' ? '건축HUB 인허가(창고시설 신축·개축·재축) 기준 · 예상준공은 착공일 + 규모별 표준 공기로 추정합니다.' : '멸실된 센터는 표시하지 않습니다.') + ' 같은 위치의 작은 원은 큰 원 위에 그려집니다.</p></div>';
     var el = $('panel');
     el.innerHTML = h;
+    el.querySelectorAll('[data-ghost]').forEach(function (b) {
+      b.addEventListener('click', function () { var key = b.getAttribute('data-ghost'); GHOST_ON[key] = !GHOST_ON[key]; drawGhosts(); renderPanel(); });
+    });
+    el.querySelectorAll('[data-goto]').forEach(function (b) {
+      b.addEventListener('click', function () { switchTab(b.getAttribute('data-goto')); });
+    });
     el.querySelectorAll('[data-pdef],[data-pall]').forEach(function (b) {
       b.addEventListener('click', function () { var all = b.hasAttribute('data-pall'); PIPE_STATUS.forEach(function (s) { f.statuses[s.k] = all || s.on; }); draw(); });
     });
@@ -934,20 +976,20 @@
     S.data.pipe = P;
   }
 
-  function pipeLoad() {
+  function pipeLoad(silent) {
+    if (!silent) { $('take').textContent = '공급 파이프라인을 불러오는 중…'; $('kpis').innerHTML = ''; }
     if (S.pipeLoading) return;
     S.pipeLoading = true;
-    $('take').textContent = '공급 파이프라인을 불러오는 중…';
-    $('kpis').innerHTML = '';
     var url = CFG.apiUrl + (CFG.apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'set=pipe&k=' + encodeURIComponent(S.pw || '') + '&t=' + Date.now();
     fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (d) {
       S.pipeLoading = false;
-      if (!d || !d.ok || !d.pipe) { $('take').textContent = '공급 파이프라인을 불러오지 못했습니다. ' + ((d && d.message) || '(서버에 파이프라인 기능이 아직 배포되지 않았을 수 있습니다)'); return; }
+      if (!d || !d.ok || !d.pipe) { if (S.tab === 'pipe') $('take').textContent = '공급 파이프라인을 불러오지 못했습니다. ' + ((d && d.message) || '(서버에 파이프라인 기능이 아직 배포되지 않았을 수 있습니다)'); return; }
       pipePrep(d);
       if (S.tab === 'pipe') switchTab('pipe');
+      else if (S.tab === 'centers') { drawGhosts(); renderPanel(); }
     }).catch(function (err) {
       S.pipeLoading = false;
-      $('take').textContent = '공급 파이프라인을 불러오지 못했습니다. (' + (err && err.message ? err.message : err) + ')';
+      if (S.tab === 'pipe') $('take').textContent = '공급 파이프라인을 불러오지 못했습니다. (' + (err && err.message ? err.message : err) + ')';
     });
   }
 
