@@ -279,3 +279,19 @@ body.fs-lock{overflow:hidden}
 .flrow.x .flv{color:var(--muted)}
 .flv{text-align:right;font-variant-numeric:tabular-nums}
 .flnote{margin:8px 0 0;font-size:.74rem;color:var(--muted)}
+/* 층별 상온/저온 */
+.tbadge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.72rem;font-weight:600;border:1px solid var(--line);color:var(--muted)}
+.tbadge.cold{background:#e3f4f9;border-color:#a9dbe8;color:#0b6f87}
+.tbadge.mix{background:#f1f8fb;border-color:#c7e6ee;color:#1d7f96}
+.flrow{grid-template-columns:34px 1fr 62px 52px}
+.flt{font-size:.7rem;color:#0b6f87;white-space:nowrap}
+.flrow.c .flbar i{background:#0e9fc0}
+.flrow.p .flbar i{background:repeating-linear-gradient(135deg,var(--accent) 0 5px,#0e9fc0 5px 10px)}
+.flrow.x.c .flbar i{background:#a9dbe8}
+.flrow.x.p .flbar i{background:repeating-linear-gradient(135deg,#c5cad4 0 5px,#a9dbe8 5px 10px)}
+.fllegend{display:flex;flex-wrap:wrap;gap:4px 14px;margin:10px 0 0;font-size:.74rem;color:var(--muted)}
+.fllegend .sq{display:inline-block;width:12px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px;background:var(--accent)}
+.fllegend .sq.c{background:#0e9fc0}
+.fllegend .sq.p{background:repeating-linear-gradient(135deg,var(--accent) 0 3px,#0e9fc0 3px 6px)}
+.fllegend .sq.x{background:#c5cad4}
+.seg.lpstep{margin-bottom:6px}
