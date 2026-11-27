@@ -200,7 +200,7 @@
   function floorBox(r) {
     if (!r.fls || !r.fls.length) return '';
     var F = S.data.floors, multi = r.fls.length > 1, asOf = '';
-    var h = '<div class="box mt"><h4>층별 면적' + (multi ? ' <span class="muted">· ' + r.fls.length + '개 동</span>' : '') + '</h4><div class="flgrid' + (multi ? '' : ' one') + '">';
+    var h = '<div class="box mt"><h4>층별 면적' + (multi ? ' <span class="muted">· ' + r.fls.length + '개 동</span>' : '') + '<span class="flwarn">⚠ 건축물대장 기준으로, 실제 층 구성·면적·상온/저온과 다를 수 있습니다</span></h4><div class="flgrid' + (multi ? '' : ' one') + '">';
     var mx = 1;   // 막대 길이는 단지 전체에서 같은 기준(가장 큰 층)으로
     r.fls.forEach(function (d) { d.fl = parseFloors(g(F, d.rec, '층별 면적(평)')); d.fl.forEach(function (x) { if (x.area > mx) mx = x.area; }); });
     r.fls.forEach(function (d) {
@@ -209,7 +209,7 @@
       asOf = asOf || G('조회일');
       var lp = d.rep >= S.lpT, tc = /^저온/.test(d.temp) ? 'cold' : /^복합/.test(d.temp) ? 'mix' : 'amb';
       h += '<div class="flcard"><div class="flhead">' + (multi ? '<b>' + esc(d.name) + '</b>' : '') +
-        (d.temp ? '<span class="tbadge ' + tc + '" title="건축물대장 층별 용도 기준(괄호는 창고 면적 중 저온 비중)">' + esc(d.temp) + '</span>' : '') +
+        (d.temp ? '<span class="tbadge ' + tc + '" title="건축물대장 층별 용도 기준">' + esc(d.temp.replace(/\s*\([^)]*\)\s*$/, '')) + '</span>' : '') +
         (lp ? '<span class="lpbadge">라지플레이트</span>' : '') + '</div>';
       h += '<div class="flstats">' + [
         ['대표층', d.rep ? fmt(d.rep) + '평' : '-'],
@@ -280,6 +280,7 @@
     var up = function (s) { return String(s || '').replace(/^Update\s*:\s*/i, ''); };
     S.stampText = { centers: 'DB ' + (up(C.updated) || '-') + ' 기준', deals: '거래사례 ' + (up(D.updated) || '-') + ' 기준' };
     $('stamp').textContent = '불러온 시각 ' + (d.generatedAt || '');
+    setSrc(S.tab);
   }
 
   // 거래시기 기간: '5y' = 진행중 + 올해 포함 최근 5개 연도, 'all' = 전체
@@ -1252,8 +1253,29 @@
   }
 
   /* ---------------- 탭 ---------------- */
+  // 탭별 출처·조사방법(머리글 아래 한두 줄)
+  var SRC = {
+    centers: ['국토교통부 건축물대장·건축인허가(건축HUB) + 자체조사(소유자·거래 정보)',
+      '수도권(서울·인천·경기)·천안의 창고시설 중 동 연면적 6,611㎡(약 2,000평) 이상을 건축물대장으로 확인해 동별로 정리하고, 매월 인허가·사용승인 변경분을 반영합니다. 층별 면적·상온/저온은 건축물대장 층별개요 기준입니다.'],
+    deals: ['자체조사', '거래 건별로 수집·정리한 자료이며, 평가(원 색)는 내부 판단입니다. 주소가 확인되지 않은 거래는 지도에 표시되지 않습니다.'],
+    pipe: ['국토교통부 건축인허가 API(건축HUB)',
+      '수도권·천안의 창고시설 중 연면적 6,612㎡(약 2,000평) 이상 인허가 건을 매월 조회해 허가·착공·사용승인 단계로 나눕니다. 예상 준공 = 실착공일 + 규모별 평균 공사기간(13·19·25개월).'],
+    wh: ['행정안전부 인허가 데이터(물류창고업 등록)',
+      '영업 중이고 등록면적이 있는 사업장만, 중복 등록은 빼고 집계합니다. 업체는 사업장명으로 분류합니다. 등록면적은 보관시설 면적이라 건물 연면적과 다르며, 다른 법령으로 등록한 저온 시설 등은 빠질 수 있습니다.']
+  };
+  function setSrc(tab) {
+    var el = $('srcNote'), t = SRC[tab];
+    if (!el) {
+      var hm = document.querySelector('.head-main');
+      if (!hm) return;
+      el = document.createElement('p'); el.id = 'srcNote'; el.className = 'srcnote'; hm.appendChild(el);
+    }
+    el.innerHTML = t ? '<b>출처</b> ' + esc(t[0]) + '<span class="dot-sep">·</span><b>조사방법</b> ' + esc(t[1]) : '';
+  }
+
   function switchTab(tab) {
     S.tab = tab;
+    setSrc(tab);
     clearSearchPin();
     $('mapLabel').textContent = tab === 'centers' ? '센터 위치' : tab === 'wh' ? '물류창고업 등록 센터 위치' : tab === 'pipe' ? '공급 파이프라인 위치' : '거래사례 위치';
     $('mapNote').textContent = tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : tab === 'wh' ? '원 색 = 업체(등록면적 상위 8곳) · 회색 = 그 외 · 연회색 = 미분류' : tab === 'pipe' ? '원 색 = 상태 · 크기 = 연면적 · 지연·장기미착공은 기본 숨김' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적';
