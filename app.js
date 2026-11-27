@@ -81,7 +81,7 @@
     if (!pw) return;
     $('go').disabled = true;
     $('gateErr').textContent = silent ? '' : '불러오는 중…';
-    var url = CFG.apiUrl + (CFG.apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(pw) + '&t=' + Date.now();
+    var url = CFG.apiUrl + (CFG.apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(pw) + '&dev=' + devId() + '&kind=' + encodeURIComponent(devKind()) + '&t=' + Date.now();
     fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (d) {
       $('go').disabled = false;
       if (!d || !d.ok) {
@@ -92,6 +92,7 @@
       if (!silent && $('remember').checked) store(PW_KEY, pw);
       $('gate').hidden = true;
       S.pw = pw;
+      logAccess();
       prep(d);
       renderNews(d.news || []);
       S.kakaoKey = CFG.kakaoKey || d.kakaoJsKey || '';
@@ -100,6 +101,39 @@
       $('go').disabled = false;
       showGate('서버에 연결하지 못했습니다. (' + (err && err.message ? err.message : err) + ')');
     });
+  }
+
+  // 접속 기록: 비밀번호가 맞으면 한 번, 기기·브라우저와 대략적 지역(시·도/시군구, 통신사)을 지도 서버로 보냄. IP 자체는 보내지 않음
+  function devId() {
+    var id = loadStore('lmap_dev');
+    if (!id) { id = Math.random().toString(36).slice(2, 10); store('lmap_dev', id); }
+    return id;
+  }
+  function devKind() {
+    var ua = navigator.userAgent || '';
+    var dev = /iPad|Tablet/.test(ua) ? '태블릿' : /Mobi|Android|iPhone/.test(ua) ? '모바일' : 'PC';
+    var os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '기타';
+    var br = /Edg\//.test(ua) ? 'Edge' : /Whale/.test(ua) ? 'Whale' : /SamsungBrowser/.test(ua) ? '삼성 인터넷' : /KAKAOTALK/i.test(ua) ? '카카오톡' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '기타';
+    return dev + ' · ' + os + ' · ' + br;
+  }
+  function logAccess() {
+    try {
+      var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { }
+      var base = CFG.apiUrl + (CFG.apiUrl.indexOf('?') >= 0 ? '&' : '?') + 'log=1&k=' + encodeURIComponent(S.pw || '') + '&dev=' + devId() +
+        '&kind=' + encodeURIComponent(devKind()) + '&scr=' + screen.width + 'x' + screen.height + '&tz=' + encodeURIComponent(tz);
+      var enc = encodeURIComponent;
+      var send = function (g) {
+        g = g || {};
+        fetch(base + '&country=' + enc(g.country || '') + '&region=' + enc(g.region || '') + '&city=' + enc(g.city || '') + '&isp=' + enc(g.isp || '') + '&t=' + Date.now(), { redirect: 'follow' }).catch(function () { });
+      };
+      var geo = function (url, pick) {   // 4초 안에 답이 없으면 지역 없이 기록
+        return Promise.race([fetch(url).then(function (r) { return r.json(); }).then(pick), new Promise(function (res, rej) { setTimeout(function () { rej(new Error('timeout')); }, 4000); })]);
+      };
+      geo('https://ipapi.co/json/', function (j) { if (!j || j.error) throw new Error('ipapi'); return { country: j.country_name, region: j.region, city: j.city, isp: j.org }; })
+        .catch(function () { return geo('https://ipwho.is/', function (j) { if (!j || j.success === false) throw new Error('ipwho'); return { country: j.country, region: j.region, city: j.city, isp: j.connection && (j.connection.isp || j.connection.org) }; }); })
+        .catch(function () { return {}; })
+        .then(send);
+    } catch (e) { /* 기록 실패는 무시 */ }
   }
 
   function loadKakao(cb) {
