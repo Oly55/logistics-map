@@ -165,7 +165,17 @@
   }
 
   /* ---------------- 층별 면적('층별 면적' 탭, 건축물대장PK로 연결) ---------------- */
-  // r.fls = [{ name, rec }] (본 동 + 하위 동), r.rep = 가장 큰 대표층 면적, r.lp = 라지플레이트 동이 하나라도 있으면 true
+  // 라지플레이트 기준(대표층, 평) — 패널에서 3·4·5·6천평 중 선택, 브라우저에 기억
+  var LP_STEPS = [3000, 4000, 5000, 6000];
+  S.lpT = Number(loadStore('lmap_lp')) || 4000;
+  if (LP_STEPS.indexOf(S.lpT) < 0) S.lpT = 4000;
+  function applyLp() {
+    if (!S.data || !S.data.centers) return;
+    S.data.centers.rows.forEach(function (r) { r.lp = (r.fls || []).some(function (d) { return d.rep >= S.lpT; }); });
+  }
+  function setLpT(t) { S.lpT = t; store('lmap_lp', String(t)); applyLp(); }
+  function flSet(s) { var m = {}; String(s || '').split(',').forEach(function (x) { x = x.trim(); if (x) m[x] = 1; }); return m; }
+  // r.fls = [{ name, rec, rep, temp, cold, part }] (본 동 + 하위 동), r.rep = 가장 큰 대표층 면적, r.lp = 대표층이 기준 이상인 동이 있으면 true(applyLp)
   function joinFloors(F, C, r) {
     r.fls = []; r.rep = 0; r.lp = false;
     if (!F || !F.byPk) return;
@@ -174,10 +184,11 @@
       var pk = clean(g(C, { v: v }, '건축물대장PK')), rec = pk && F.byPk[pk];
       if (!rec) return;
       var fr = { v: rec }, rp = num(g(F, fr, '대표층 면적(평)')) || 0;
-      r.fls.push({ name: clean(g(F, fr, '동명(대장)')) || clean(g(C, { v: v }, '건물명')) || (i ? '하위 동 ' + i : r.name), rec: fr, rep: rp, lp: clean(g(F, fr, '라지플레이트')) === 'Y' });
+      r.fls.push({ name: clean(g(F, fr, '동명(대장)')) || clean(g(C, { v: v }, '건물명')) || (i ? '하위 동 ' + i : r.name), rec: fr, rep: rp,
+        temp: clean(g(F, fr, '상온/저온(대장)')), cold: flSet(g(F, fr, '저온층')), part: flSet(g(F, fr, '일부 저온층')) });
       if (rp > r.rep) r.rep = rp;
-      if (clean(g(F, fr, '라지플레이트')) === 'Y') r.lp = true;
     });
+    r.lp = r.fls.some(function (d) { return d.rep >= S.lpT; });
   }
   // '층별 면적(평)' 문자열("B1 6,315 / 1F 906* / 2F 3,446") → 위층부터 [{ fl, area, x(대표층 계산 제외) }]
   function parseFloors(s) {
@@ -196,7 +207,10 @@
       var G = function (n) { return clean(g(F, d.rec, n)); };
       var fl = d.fl;
       asOf = asOf || G('조회일');
-      h += '<div class="flcard">' + (multi || d.lp ? '<div class="flhead">' + (multi ? '<b>' + esc(d.name) + '</b>' : '') + (d.lp ? '<span class="lpbadge">라지플레이트</span>' : '') + '</div>' : '');
+      var lp = d.rep >= S.lpT, tc = /^저온/.test(d.temp) ? 'cold' : /^복합/.test(d.temp) ? 'mix' : 'amb';
+      h += '<div class="flcard"><div class="flhead">' + (multi ? '<b>' + esc(d.name) + '</b>' : '') +
+        (d.temp ? '<span class="tbadge ' + tc + '" title="건축물대장 층별 용도 기준(괄호는 창고 면적 중 저온 비중)">' + esc(d.temp) + '</span>' : '') +
+        (lp ? '<span class="lpbadge">라지플레이트</span>' : '') + '</div>';
       h += '<div class="flstats">' + [
         ['대표층', d.rep ? fmt(d.rep) + '평' : '-'],
         ['최대층', has(G('최대층 면적(평)')) ? G('최대층') + ' ' + G('최대층 면적(평)') + '평' : '-'],
@@ -206,13 +220,15 @@
       if (fl.length) {
         h += '<div class="flstack">';
         fl.forEach(function (x) {
-          h += '<div class="flrow' + (x.x ? ' x' : '') + '" title="' + esc(x.fl + ' ' + fmt(x.area) + '평' + (x.x ? ' (대표층 계산에서 뺀 층)' : '')) + '"><span class="fll">' + esc(x.fl) + '</span><span class="flbar"><i style="width:' + Math.max(1, x.area / mx * 100).toFixed(1) + '%"></i></span><span class="flv">' + fmt(x.area) + '</span></div>';
+          var c = d.cold[x.fl] ? 'c' : d.part[x.fl] ? 'p' : '';
+          h += '<div class="flrow' + (x.x ? ' x' : '') + (c ? ' ' + c : '') + '" title="' + esc(x.fl + ' ' + fmt(x.area) + '평' + (c === 'c' ? ' · 저온' : c === 'p' ? ' · 일부 저온' : '') + (x.x ? ' (대표층 계산에서 뺀 층)' : '')) + '"><span class="fll">' + esc(x.fl) + '</span><span class="flbar"><i style="width:' + Math.max(1, x.area / mx * 100).toFixed(1) + '%"></i></span><span class="flv">' + fmt(x.area) + '</span><span class="flt">' + (c === 'c' ? '저온' : c === 'p' ? '일부 저온' : '') + '</span></div>';
         });
         h += '</div>';
       }
       h += '</div>';
     });
-    h += '</div><p class="flnote">건축물대장 층별개요 기준' + (asOf ? '(' + esc(ymd(asOf)) + ' 조회)' : '') + ' · 대표층 = 창고층 면적의 중앙값 · 라지플레이트 = 대표층 4,000평 이상 · 흐린 막대는 대표층 계산에서 뺀 층(램프·사무 등 작은 층)</p></div>';
+    h += '</div><p class="fllegend"><span><i class="sq amb"></i>상온</span><span><i class="sq c"></i>저온층(층 면적 절반 이상)</span><span><i class="sq p"></i>일부 저온층</span><span><i class="sq x"></i>대표층 계산에서 뺀 층(램프·사무 등)</span></p>' +
+      '<p class="flnote">건축물대장 층별개요 기준' + (asOf ? '(' + esc(ymd(asOf)) + ' 조회)' : '') + ' · 대표층 = 창고층 면적의 중앙값 · 라지플레이트 = 대표층 ' + fmt(S.lpT) + '평 이상(오른쪽 패널에서 변경) · 저온은 층별 용도(냉동·냉장·저온·정온) 기준이라 준공 후 임차인이 설치한 저온 설비는 빠질 수 있음</p></div>';
     return h;
   }
 
@@ -741,10 +757,12 @@
         opts('regions', C.regionList, C.regionColor, countBy('regions', 'region'), stripNo) + '</div>';
       if (S.data.floors) {
         var nLp = filtered('lp').filter(function (r) { return r.lp; }).length;
-        h += '<div class="p-sec"><p class="p-title">층 면적</p><div class="seg period" role="group" aria-label="층 면적">' +
+        h += '<div class="p-sec"><p class="p-title">라지플레이트</p><p class="p-hint">기준(대표층 면적)</p><div class="seg period lpstep" role="group" aria-label="라지플레이트 기준">' +
+          LP_STEPS.map(function (t) { return '<button type="button" data-lpt="' + t + '" class="' + (S.lpT === t ? 'on' : '') + '">' + (t / 1000) + '천평</button>'; }).join('') + '</div>' +
+          '<div class="seg period" role="group" aria-label="라지플레이트 필터">' +
           '<button type="button" data-lp="0" class="' + (f.lp ? '' : 'on') + '">전체</button>' +
           '<button type="button" data-lp="1" class="' + (f.lp ? 'on' : '') + '">라지플레이트만 (' + fmt(nLp) + ')</button></div>' +
-          '<p class="p-hint">대표층 4,000평 이상 동이 있는 센터 · 건축물대장 층별개요 기준</p></div>';
+          '<p class="p-hint">대표층이 ' + fmt(S.lpT) + '평 이상인 동이 있는 센터 · 건축물대장 층별개요 기준</p></div>';
       }
     } else {
       var D = S.data.deals;
@@ -777,6 +795,9 @@
     });
     el.querySelectorAll('[data-period]').forEach(function (b) {
       b.addEventListener('click', function () { setPeriod(S.data.deals, b.getAttribute('data-period')); draw(); });
+    });
+    el.querySelectorAll('[data-lpt]').forEach(function (b) {
+      b.addEventListener('click', function () { setLpT(Number(b.getAttribute('data-lpt'))); draw(); if (S.sel.centers) renderDetail(S.sel.centers); });
     });
     el.querySelectorAll('[data-lp]').forEach(function (b) {
       b.addEventListener('click', function () { S.f.centers.lp = b.getAttribute('data-lp') === '1'; draw(); });
@@ -817,7 +838,7 @@
       var allOn = PIPE_STATUS.every(function (s) { return f.statuses[s.k]; });
       if (allOn) parts.push('전체 상태'); else if (!dflt) parts.push('일부 상태');
     }
-    if (f.lp) parts.push('라지플레이트');
+    if (f.lp) parts.push('라지플레이트(대표층 ' + fmt(S.lpT) + '평↑)');
     if (f.q) parts.push("검색어 '" + esc(f.q) + "'");
     return parts.length ? parts.join(' · ') + ' 조건에서' : '전체 기준으로';
   }
