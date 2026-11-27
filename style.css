@@ -295,3 +295,7 @@ body.fs-lock{overflow:hidden}
 .fllegend .sq.p{background:repeating-linear-gradient(135deg,var(--accent) 0 3px,#0e9fc0 3px 6px)}
 .fllegend .sq.x{background:#c5cad4}
 .seg.lpstep{margin-bottom:6px}
+/* 탭별 출처·조사방법, 층별 면적 경고 */
+.srcnote{margin:4px 0 0;font-size:.76rem;line-height:1.55;color:var(--muted);max-width:62rem}
+.srcnote b{font-weight:600;color:var(--fg);margin-right:3px}
+.flwarn{display:inline-block;margin-left:10px;padding:1px 8px;border-radius:4px;background:#fff4e0;border:1px solid #f0d2a0;color:#8a5a12;font-size:.72rem;font-weight:500;vertical-align:1px}
