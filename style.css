@@ -255,3 +255,10 @@ body.fs-lock{overflow:hidden}
 .opt .sw.gsw.g-pipe{width:8px;height:8px;background:#1b2230;border-radius:1px;transform:rotate(45deg);margin:0 1px}
 .opt .sw.gsw.g-center{width:7px;height:7px;background:#5d6678}
 .golink{margin-top:4px}
+/* 검색 → 지도 이동 */
+.sgo{margin-left:4px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:.8rem;cursor:pointer;white-space:nowrap}
+.sgo:hover{background:#f2f4f8}
+.smsg{display:none;position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:7;max-width:70%;text-align:center;padding:6px 12px;border-radius:8px;background:rgba(27,34,48,.88);color:#fff;font-size:.8rem;box-shadow:0 2px 6px rgba(0,0,0,.2);pointer-events:none}
+.spin{position:relative;pointer-events:none}
+.spin span{display:block;padding:4px 8px;border-radius:6px;background:#c8302f;color:#fff;font-size:.75rem;font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.spin:after{content:'';display:block;width:0;height:0;margin:0 auto;border:6px solid transparent;border-top-color:#c8302f}
