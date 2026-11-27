@@ -262,3 +262,20 @@ body.fs-lock{overflow:hidden}
 .spin{position:relative;pointer-events:none}
 .spin span{display:block;padding:4px 8px;border-radius:6px;background:#c8302f;color:#fff;font-size:.75rem;font-weight:600;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.3)}
 .spin:after{content:'';display:block;width:0;height:0;margin:0 auto;border:6px solid transparent;border-top-color:#c8302f}
+/* 층별 면적(센터 상세) */
+.flgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.flgrid.one{grid-template-columns:minmax(0,560px)}
+.flcard{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface)}
+.flhead{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:.86rem}
+.lpbadge{display:inline-block;padding:1px 7px;border-radius:10px;background:var(--accent-soft);color:var(--accent);font-size:.72rem;font-weight:600}
+.flstats{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.82rem;margin-bottom:8px}
+.flstats em{font-style:normal;color:var(--muted);margin-right:4px}
+.flstack{display:flex;flex-direction:column;gap:2px}
+.flrow{display:grid;grid-template-columns:34px 1fr 62px;align-items:center;gap:6px;font-size:.76rem}
+.fll{color:var(--muted);text-align:right}
+.flbar{height:10px;background:transparent;border-radius:2px;overflow:hidden}
+.flbar i{display:block;height:100%;background:var(--accent);border-radius:0 4px 4px 0}
+.flrow.x .flbar i{background:#c5cad4}
+.flrow.x .flv{color:var(--muted)}
+.flv{text-align:right;font-variant-numeric:tabular-nums}
+.flnote{margin:8px 0 0;font-size:.74rem;color:var(--muted)}
