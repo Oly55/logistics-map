@@ -140,7 +140,7 @@
     if (window.kakao && window.kakao.maps && window.kakao.maps.Map) { cb(); return; }
     if (!S.kakaoKey) { fatal('카카오 JavaScript 키가 없습니다. Apps Script 스크립트 속성 KAKAO_JS_KEY를 확인하세요.'); return; }
     var s = document.createElement('script');
-    s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=' + encodeURIComponent(S.kakaoKey);
+    s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&libraries=services&appkey=' + encodeURIComponent(S.kakaoKey);
     s.onload = function () {
       try { window.kakao.maps.load(cb); } catch (e) { fatal('카카오 지도를 불러오지 못했습니다. JavaScript 키와 사이트 도메인 등록을 확인하세요.'); }
     };
@@ -165,7 +165,10 @@
       r.owner = clean(g(C, r, '현 소유자'));
       r.demolished = has(g(C, r, '멸실일자'));
       r.done = g(C, r, '준공일');
-      r.text = [r.name, r.owner, g(C, r, '매도인(or 시행자)'), g(C, r, '소재지(도로명)'), g(C, r, '소재지(지번)'), g(C, r, '비고'), g(C, r, '시군')].join(' ').toLowerCase();
+      var bon = clean(g(C, r, '본번')), bu = clean(g(C, r, '부번')), dong = clean(g(C, r, '동리')) || clean(g(C, r, '구읍면'));
+      var lot = bon && bon !== '0' ? bon + (bu && bu !== '0' ? '-' + bu : '') : '';
+      r.text = [r.name, r.owner, g(C, r, '매도인(or 시행자)'), g(C, r, '소재지(도로명)'), g(C, r, '소재지(지번)'), g(C, r, '비고'),
+        g(C, r, '광역(특별)시·도'), g(C, r, '시군'), g(C, r, '구읍면'), dong, lot, dong && lot ? dong + lot : ''].join(' ').toLowerCase();
       regions[r.region] = (regions[r.region] || 0) + 1;
     });
     C.regionList = Object.keys(regions).sort();
@@ -505,7 +508,7 @@
   function passes(r, f, q, skip) {
     if (f.min != null && f.min !== '' && r.area < f.min) return false;
     if (f.max != null && f.max !== '' && r.area > f.max) return false;
-    if (q && r.text.indexOf(q) < 0) return false;
+    if (q && !qMatch(r.text, q)) return false;
     if (r.kind === 'pipe') {
       if (skip !== 'statuses' && !f.statuses[r.status]) return false;
       if (skip !== 'regions' && !f.regions[r.region]) return false;
@@ -523,6 +526,10 @@
     }
     return true;
   }
+
+  // 검색: 띄어쓰기로 나눈 낱말이 모두 들어 있으면 일치('번지'·'산' 앞뒤 공백 무시) — 예: '신동 705', '705-1번지', '화성 신동'
+  function qTokens(q) { return String(q || '').toLowerCase().replace(/번지/g, ' ').split(/\s+/).filter(Boolean); }
+  function qMatch(text, q) { var ts = qTokens(q); for (var i = 0; i < ts.length; i++) if (text.indexOf(ts[i]) < 0) return false; return true; }
 
   function filtered(skip) {
     if (!S.data) return [];
@@ -542,7 +549,7 @@
     });
     h += '</div><input class="num" id="fmin" type="number" placeholder="최소(평)" value="' + (f.min != null && f.min !== '' ? f.min : '') + '">';
     h += '<span class="muted">~</span><input class="num" id="fmax" type="number" placeholder="최대(평)" value="' + (f.max != null && f.max !== '' ? f.max : '') + '"></div>';
-    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 비고 검색' : S.tab === 'wh' ? '사업장명 · 업체 · 주소 검색' : S.tab === 'pipe' ? '건물명 · 주소 · 시군구 · 메모 검색' : '프로젝트 · 주소 · 매도/매수자 · 임차인 검색') + '" value="' + esc(f.q) + '"></div>';
+    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 비고 검색' : S.tab === 'wh' ? '사업장명 · 업체 · 주소 검색' : S.tab === 'pipe' ? '건물명 · 주소 · 시군구 · 메모 검색' : '프로젝트 · 주소 · 매도/매수자 · 임차인 검색') + '" value="' + esc(f.q) + '"><button class="sgo" id="fgo" type="button" title="검색어 위치로 지도 이동 (Enter)">이동</button></div>';
     h += '<div class="count" id="count"></div>';
     var el = $('filters');
     el.innerHTML = h;
@@ -558,7 +565,60 @@
     };
     $('fmin').addEventListener('change', onNum); $('fmax').addEventListener('change', onNum);
     var timer = null;
-    $('fq').addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { f.q = $('fq').value; draw(); }, 250); });
+    $('fq').addEventListener('input', function () { clearTimeout(timer); if (!$('fq').value.trim()) clearSearchPin(); timer = setTimeout(function () { f.q = $('fq').value; draw(); }, 250); });
+    $('fq').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); searchGo(); } });
+    $('fgo').addEventListener('click', function () { clearTimeout(timer); searchGo(); });
+  }
+
+  // 검색한 곳으로 지도 이동: 맞는 원이 있으면 그 원들로, 없으면 주소(지번·도로명)나 장소 이름으로 위치를 찾아 이동
+  function searchGo() {
+    var q = ($('fq').value || '').trim(), k = window.kakao && window.kakao.maps;
+    clearSearchPin();
+    if (!q || !k || !S.map) return;
+    var f = S.f[S.tab];
+    if (f.q !== q) { f.q = q; draw(); }
+    var hits = filtered().filter(hasXY), note = '';
+    if (!hits.length && ((f.min != null && f.min !== '') || (f.max != null && f.max !== ''))) {
+      // 연면적 조건 때문에 숨은 곳이 있으면 그 위치로 이동하고 알려 줌
+      var f2 = Object.assign({}, f, { min: null, max: null }), lq = q.toLowerCase();
+      hits = S.data[S.tab].rows.filter(function (r) { return hasXY(r) && passes(r, f2, lq); });
+      if (hits.length) note = ' — 연면적 조건에 걸려 숨겨진 곳입니다(연면적 \'전체\'를 누르면 보입니다)';
+    }
+    if (hits.length) {
+      if (hits.length === 1) { S.map.setLevel(Math.min(S.map.getLevel(), 5)); S.map.setCenter(new k.LatLng(hits[0].lat, hits[0].lng)); }
+      else {
+        var b = new k.LatLngBounds();
+        hits.forEach(function (r) { b.extend(new k.LatLng(r.lat, r.lng)); });
+        S.map.setBounds(b, 40, 40, 40, 40);
+      }
+      searchMsg(fmt(hits.length) + (S.tab === 'deals' || S.tab === 'pipe' ? '건' : '곳') + '으로 이동했습니다' + note);
+      return;
+    }
+    if (!k.services) { searchMsg('맞는 항목이 없습니다'); return; }
+    var addr = q.replace(/번지/g, '').trim();
+    var go = function (lat, lng, label) {
+      S.map.setLevel(4); S.map.setCenter(new k.LatLng(lat, lng));
+      var el = document.createElement('div');
+      el.className = 'spin';
+      el.innerHTML = '<span>' + esc(label) + '</span>';
+      S.searchPin = new k.CustomOverlay({ position: new k.LatLng(lat, lng), content: el, xAnchor: 0.5, yAnchor: 1, zIndex: 99999, clickable: false });
+      S.searchPin.setMap(S.map);
+      searchMsg('맞는 ' + (S.tab === 'deals' || S.tab === 'pipe' ? '항목은' : '센터는') + ' 없고, 검색한 위치로 이동했습니다');
+    };
+    new k.services.Geocoder().addressSearch(addr, function (res, st) {
+      if (st === k.services.Status.OK && res.length) { var a = res[0]; go(+a.y, +a.x, a.address_name || addr); return; }
+      new k.services.Places().keywordSearch(q, function (res2, st2) {
+        if (st2 === k.services.Status.OK && res2.length) { var p = res2[0]; go(+p.y, +p.x, p.place_name || q); return; }
+        searchMsg('맞는 항목도, 찾을 수 있는 주소·장소도 없습니다');
+      });
+    });
+  }
+  function clearSearchPin() { if (S.searchPin) { S.searchPin.setMap(null); S.searchPin = null; } }
+  function searchMsg(t) {
+    var el = $('smsg');
+    if (!el) { el = document.createElement('div'); el.id = 'smsg'; el.className = 'smsg'; document.querySelector('.mapwrap').appendChild(el); }
+    el.textContent = t; el.style.display = 'block';
+    clearTimeout(S.smsgT); S.smsgT = setTimeout(function () { el.style.display = 'none'; }, 5000);
   }
 
   // 지도 오른쪽 패널: 표시 항목(권역/평가/거래시기/구분) + 원 크기 범례
@@ -1083,6 +1143,7 @@
   /* ---------------- 탭 ---------------- */
   function switchTab(tab) {
     S.tab = tab;
+    clearSearchPin();
     $('mapLabel').textContent = tab === 'centers' ? '센터 위치' : tab === 'wh' ? '물류창고업 등록 센터 위치' : tab === 'pipe' ? '공급 파이프라인 위치' : '거래사례 위치';
     $('mapNote').textContent = tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : tab === 'wh' ? '원 색 = 업체(등록면적 상위 8곳) · 회색 = 그 외 · 연회색 = 미분류' : tab === 'pipe' ? '원 색 = 상태 · 크기 = 연면적 · 지연·장기미착공은 기본 숨김' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적';
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === tab); });
