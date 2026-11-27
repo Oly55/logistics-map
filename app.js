@@ -605,11 +605,23 @@
       S.searchPin.setMap(S.map);
       searchMsg('맞는 ' + (S.tab === 'deals' || S.tab === 'pipe' ? '항목은' : '센터는') + ' 없고, 검색한 위치로 이동했습니다');
     };
-    new k.services.Geocoder().addressSearch(addr, function (res, st) {
-      if (st === k.services.Status.OK && res.length) { var a = res[0]; go(+a.y, +a.x, a.address_name || addr); return; }
+    var gc = new k.services.Geocoder(), OK = k.services.Status.OK;
+    // 주소처럼 보이면(동·리·로·길 + 숫자) 장소 검색으로 엉뚱한 곳에 가지 않도록, 번지를 못 찾으면 동·리 중심으로 이동
+    var looksAddr = /\d/.test(addr) && /(동|리|읍|면|로|길|가)(\s|\d|$)/.test(addr);
+    var places = function () {
       new k.services.Places().keywordSearch(q, function (res2, st2) {
-        if (st2 === k.services.Status.OK && res2.length) { var p = res2[0]; go(+p.y, +p.x, p.place_name || q); return; }
+        if (st2 === OK && res2.length) { var p = res2[0]; go(+p.y, +p.x, p.place_name || q); return; }
         searchMsg('맞는 항목도, 찾을 수 있는 주소·장소도 없습니다');
+      });
+    };
+    gc.addressSearch(addr, function (res, st) {
+      if (st === OK && res.length) { var a = res[0]; go(+a.y, +a.x, a.address_name || addr); return; }
+      if (!looksAddr) { places(); return; }
+      var area = addr.replace(/\s*산?\s*\d+(-\d+)?\s*$/, '').trim();
+      if (!area || area === addr) { places(); return; }
+      gc.addressSearch(area, function (res3, st3) {
+        if (st3 === OK && res3.length) { var a3 = res3[0]; go(+a3.y, +a3.x, (a3.address_name || area) + ' (번지를 찾지 못해 동·리 중심)'); return; }
+        searchMsg('맞는 항목도, 찾을 수 있는 주소도 없습니다');
       });
     });
   }
