@@ -26,7 +26,7 @@
     data: null, tab: 'centers', map: null, dots: [], info: null, limit: PAGE,
     sel: { centers: null, deals: null, wh: null, pipe: null },
     f: {
-      centers: { min: 10000, max: null, regions: {}, q: '', sort: 'area', dir: -1 },
+      centers: { min: 10000, max: null, regions: {}, lp: false, q: '', sort: 'area', dir: -1 },
       deals: { min: null, max: null, grades: {}, years: {}, types: {}, q: '', sort: 'when', dir: -1 },
       wh: { min: null, max: null, groups: {}, regions: {}, q: '', sort: 'area', dir: -1 },
       pipe: { min: null, max: null, statuses: {}, regions: {}, years: {}, q: '', sort: 'dueSort', dir: 1 }
@@ -164,6 +164,58 @@
     $('map').innerHTML = '<div style="padding:24px;color:#c62828">' + esc(msg) + '</div>';
   }
 
+  /* ---------------- 층별 면적('층별 면적' 탭, 건축물대장PK로 연결) ---------------- */
+  // r.fls = [{ name, rec }] (본 동 + 하위 동), r.rep = 가장 큰 대표층 면적, r.lp = 라지플레이트 동이 하나라도 있으면 true
+  function joinFloors(F, C, r) {
+    r.fls = []; r.rep = 0; r.lp = false;
+    if (!F || !F.byPk) return;
+    if (!F.ix) F.ix = index(F.headers);
+    [r.v].concat(r.kids || []).forEach(function (v, i) {
+      var pk = clean(g(C, { v: v }, '건축물대장PK')), rec = pk && F.byPk[pk];
+      if (!rec) return;
+      var fr = { v: rec }, rp = num(g(F, fr, '대표층 면적(평)')) || 0;
+      r.fls.push({ name: clean(g(F, fr, '동명(대장)')) || clean(g(C, { v: v }, '건물명')) || (i ? '하위 동 ' + i : r.name), rec: fr, rep: rp, lp: clean(g(F, fr, '라지플레이트')) === 'Y' });
+      if (rp > r.rep) r.rep = rp;
+      if (clean(g(F, fr, '라지플레이트')) === 'Y') r.lp = true;
+    });
+  }
+  // '층별 면적(평)' 문자열("B1 6,315 / 1F 906* / 2F 3,446") → 위층부터 [{ fl, area, x(대표층 계산 제외) }]
+  function parseFloors(s) {
+    return String(s || '').split('/').map(function (t) {
+      var m = /^\s*(\S+)\s+([\d,.]+)(\*?)\s*$/.exec(t);
+      return m ? { fl: m[1], area: num(m[2]) || 0, x: !!m[3] } : null;
+    }).filter(Boolean).reverse();
+  }
+  function floorBox(r) {
+    if (!r.fls || !r.fls.length) return '';
+    var F = S.data.floors, multi = r.fls.length > 1, asOf = '';
+    var h = '<div class="box mt"><h4>층별 면적' + (multi ? ' <span class="muted">· ' + r.fls.length + '개 동</span>' : '') + '</h4><div class="flgrid' + (multi ? '' : ' one') + '">';
+    var mx = 1;   // 막대 길이는 단지 전체에서 같은 기준(가장 큰 층)으로
+    r.fls.forEach(function (d) { d.fl = parseFloors(g(F, d.rec, '층별 면적(평)')); d.fl.forEach(function (x) { if (x.area > mx) mx = x.area; }); });
+    r.fls.forEach(function (d) {
+      var G = function (n) { return clean(g(F, d.rec, n)); };
+      var fl = d.fl;
+      asOf = asOf || G('조회일');
+      h += '<div class="flcard">' + (multi || d.lp ? '<div class="flhead">' + (multi ? '<b>' + esc(d.name) + '</b>' : '') + (d.lp ? '<span class="lpbadge">라지플레이트</span>' : '') + '</div>' : '');
+      h += '<div class="flstats">' + [
+        ['대표층', d.rep ? fmt(d.rep) + '평' : '-'],
+        ['최대층', has(G('최대층 면적(평)')) ? G('최대층') + ' ' + G('최대층 면적(평)') + '평' : '-'],
+        ['1층', has(G('1층 면적(평)')) ? G('1층 면적(평)') + '평' : '-'],
+        ['창고층', has(G('창고층 수')) ? G('창고층 수') + '개' : '-']
+      ].map(function (p) { return '<span><em>' + p[0] + '</em>' + esc(p[1]) + '</span>'; }).join('') + '</div>';
+      if (fl.length) {
+        h += '<div class="flstack">';
+        fl.forEach(function (x) {
+          h += '<div class="flrow' + (x.x ? ' x' : '') + '" title="' + esc(x.fl + ' ' + fmt(x.area) + '평' + (x.x ? ' (대표층 계산에서 뺀 층)' : '')) + '"><span class="fll">' + esc(x.fl) + '</span><span class="flbar"><i style="width:' + Math.max(1, x.area / mx * 100).toFixed(1) + '%"></i></span><span class="flv">' + fmt(x.area) + '</span></div>';
+        });
+        h += '</div>';
+      }
+      h += '</div>';
+    });
+    h += '</div><p class="flnote">건축물대장 층별개요 기준' + (asOf ? '(' + esc(ymd(asOf)) + ' 조회)' : '') + ' · 대표층 = 창고층 면적의 중앙값 · 라지플레이트 = 대표층 4,000평 이상 · 흐린 막대는 대표층 계산에서 뺀 층(램프·사무 등 작은 층)</p></div>';
+    return h;
+  }
+
   /* ---------------- 데이터 가공 ---------------- */
   function prep(d) {
     var C = d.centers, D = d.deals;
@@ -183,6 +235,7 @@
       r.text = [r.name, r.owner, g(C, r, '매도인(or 시행자)'), g(C, r, '소재지(도로명)'), g(C, r, '소재지(지번)'), g(C, r, '비고'),
         g(C, r, '광역(특별)시·도'), g(C, r, '시군'), g(C, r, '구읍면'), dong, lot, dong && lot ? dong + lot : ''].join(' ').toLowerCase();
       regions[r.region] = (regions[r.region] || 0) + 1;
+      joinFloors(d.floors, C, r);
     });
     C.regionList = Object.keys(regions).sort();
     C.regionColor = {};
@@ -386,7 +439,7 @@
       parts = [r.name, r.group !== WH_OTHERS ? r.group : '', pyLabel(r.area), r.cold ? '저온 ' + pyLabel(r.cold) : '상온', r.lic ? yymm(r.lic) + ' 등록' : ''];
     } else if (r.kind === 'centers') {
       var C = S.data.centers;
-      parts = [r.name, yymm(r.done) ? yymm(r.done) + '준공' : '', r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(C, r, '용도')), r.owner ? '소유 ' + r.owner : '', clean(g(C, r, '비고'))];
+      parts = [r.name, yymm(r.done) ? yymm(r.done) + '준공' : '', r.area ? (r.area / 10000).toFixed(1) + '만평' : '', r.rep ? '대표층 ' + fmt(r.rep) + '평' : '', clean(g(C, r, '용도')), r.owner ? '소유 ' + r.owner : '', clean(g(C, r, '비고'))];
     } else {
       var D = S.data.deals;
       parts = [r.name, r.when, r.area ? (r.area / 10000).toFixed(1) + '만평' : '', clean(g(D, r, '상/저온')), has(g(D, r, '매매가(억원)')) ? g(D, r, '매매가(억원)') + '억' : '', clean(g(D, r, '비고'))];
@@ -532,6 +585,7 @@
     } else if (r.kind === 'centers') {
       if (r.demolished) return false;
       if (skip !== 'regions' && !f.regions[r.region]) return false;
+      if (skip !== 'lp' && f.lp && !r.lp) return false;
     } else {
       if (skip !== 'grades' && !f.grades[r.grade]) return false;
       if (skip !== 'years' && !f.years[r.year]) return false;
@@ -685,6 +739,13 @@
       var C = S.data.centers;
       h += '<div class="p-sec"><p class="p-title">지도에 표시할 권역</p><p class="p-hint">눌러서 켜고 끄기 · Shift+클릭은 그것만</p>' +
         opts('regions', C.regionList, C.regionColor, countBy('regions', 'region'), stripNo) + '</div>';
+      if (S.data.floors) {
+        var nLp = filtered('lp').filter(function (r) { return r.lp; }).length;
+        h += '<div class="p-sec"><p class="p-title">층 면적</p><div class="seg period" role="group" aria-label="층 면적">' +
+          '<button type="button" data-lp="0" class="' + (f.lp ? '' : 'on') + '">전체</button>' +
+          '<button type="button" data-lp="1" class="' + (f.lp ? 'on' : '') + '">라지플레이트만 (' + fmt(nLp) + ')</button></div>' +
+          '<p class="p-hint">대표층 4,000평 이상 동이 있는 센터 · 건축물대장 층별개요 기준</p></div>';
+      }
     } else {
       var D = S.data.deals;
       h += '<div class="p-sec"><p class="p-title">평가</p><p class="p-hint">시트의 셀 색 기준 · Shift+클릭은 그것만</p>' +
@@ -716,6 +777,9 @@
     });
     el.querySelectorAll('[data-period]').forEach(function (b) {
       b.addEventListener('click', function () { setPeriod(S.data.deals, b.getAttribute('data-period')); draw(); });
+    });
+    el.querySelectorAll('[data-lp]').forEach(function (b) {
+      b.addEventListener('click', function () { S.f.centers.lp = b.getAttribute('data-lp') === '1'; draw(); });
     });
     el.querySelectorAll('[data-group]').forEach(function (b) {
       b.addEventListener('click', function (e) {
@@ -753,6 +817,7 @@
       var allOn = PIPE_STATUS.every(function (s) { return f.statuses[s.k]; });
       if (allOn) parts.push('전체 상태'); else if (!dflt) parts.push('일부 상태');
     }
+    if (f.lp) parts.push('라지플레이트');
     if (f.q) parts.push("검색어 '" + esc(f.q) + "'");
     return parts.length ? parts.join(' · ') + ' 조건에서' : '전체 기준으로';
   }
@@ -1245,6 +1310,7 @@
     if (more) h += card('기타 항목', more);
     h += '</div>';
 
+    h += floorBox(r);
     if (r.kids && r.kids.length) {
       h += '<div class="box mt"><h4>단지 내 동</h4><table class="subtable"><tr><th>건물명</th><th>연면적(평)</th><th>준공일</th><th>지번</th></tr>';
       r.kids.forEach(function (v) {
@@ -1304,6 +1370,7 @@
     centers: [
       ['건물명', function (r) { return r.name; }, 'name'],
       ['연면적(평)', function (r) { return fmt(r.area); }, 'area', 'r'],
+      ['대표층(평)', function (r) { return r.rep ? fmt(r.rep) + (r.lp ? ' LP' : '') : ''; }, 'rep', 'r'],
       ['권역', function (r) { return stripNo(r.region); }, 'region', '', true],
       ['현 소유자', function (r) { return r.owner; }, 'owner'],
       ['준공', function (r) { return ymd(r.done); }, 'done'],
@@ -1382,7 +1449,7 @@
     t.querySelectorAll('th[data-sort]').forEach(function (th) {
       th.addEventListener('click', function () {
         var k = th.getAttribute('data-sort');
-        if (f.sort === k) f.dir = -f.dir; else { f.sort = k; f.dir = (k === 'area' || k === 'price' || k === 'when') ? -1 : 1; }
+        if (f.sort === k) f.dir = -f.dir; else { f.sort = k; f.dir = (k === 'area' || k === 'price' || k === 'when' || k === 'rep') ? -1 : 1; }
         renderList(list);
       });
     });
