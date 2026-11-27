@@ -43,6 +43,18 @@
   function ymd(s) { s = String(s || '').trim(); var m = /^(\d{4})[-.]?(\d{2})[-.]?(\d{2})$/.exec(s); return m ? m[1] + '.' + m[2] + '.' + m[3] : s; }
   function has(s) { s = String(s == null ? '' : s).trim(); return s !== '' && s !== '-' && s !== '0' && s !== '??'; }
   function clean(s) { return has(s) ? String(s).trim() : ''; }
+  // 시트의 '소재지(지번)'이 비어 있을 때 광역·시군·구읍면·동리·본번·부번 칸으로 지번 주소를 만든다
+  function lotAddr(C, r, lot) {
+    var sido = clean(g(C, r, '광역(특별)시·도')), parts = [sido];
+    ['시군', '구읍면', '동리'].forEach(function (n) {
+      var v = clean(g(C, r, n));
+      if (!v || v === '-' || parts.indexOf(v) >= 0) return;
+      if (n === '시군' && /광역시|특별시/.test(sido) && /시$/.test(v)) return; // 예: 인천광역시 + '인천시'
+      parts.push(v);
+    });
+    if (parts.length < 2) return '';
+    return parts.filter(Boolean).join(' ') + (lot ? ' ' + lot + '번지' : '');
+  }
   function stripNo(s) { return String(s || '').replace(/^\d+\./, ''); }
   function index(headers) { var m = {}; headers.forEach(function (h, i) { h = String(h).trim(); if (m[h] === undefined) m[h] = i; }); return m; }
   function g(set, row, name) { var i = set.ix[name]; return i === undefined ? '' : (row.v[i] == null ? '' : String(row.v[i])); }
@@ -167,6 +179,7 @@
       r.done = g(C, r, '준공일');
       var bon = clean(g(C, r, '본번')), bu = clean(g(C, r, '부번')), dong = clean(g(C, r, '동리')) || clean(g(C, r, '구읍면'));
       var lot = bon && bon !== '0' ? bon + (bu && bu !== '0' ? '-' + bu : '') : '';
+      r.jibun = clean(g(C, r, '소재지(지번)')) || lotAddr(C, r, lot);
       r.text = [r.name, r.owner, g(C, r, '매도인(or 시행자)'), g(C, r, '소재지(도로명)'), g(C, r, '소재지(지번)'), g(C, r, '비고'),
         g(C, r, '광역(특별)시·도'), g(C, r, '시군'), g(C, r, '구읍면'), dong, lot, dong && lot ? dong + lot : ''].join(' ').toLowerCase();
       regions[r.region] = (regions[r.region] || 0) + 1;
@@ -1224,7 +1237,7 @@
     var h = '<div class="dhead"><h2>' + esc(r.name) + '</h2><span class="pill" style="color:' + colorOf(r) + '">' + esc(stripNo(r.region)) + '</span>' + (has(G('용도')) ? '<span class="tag">' + esc(G('용도')) + '</span>' : '') + '<span class="muted">시트 ' + r.r + '행</span></div>';
     h += dkpis([['연면적', r.area ? fmt(r.area) + '평' : ''], ['준공', ymd(G('준공일'))], ['현 소유자', G('현 소유자')], ['최근 거래가', has(G('거래가격(억원)')) ? G('거래가격(억원)') + '억' : ''], ['평단가', has(G('평단가')) && G('평단가') !== '0' ? G('평단가') + '만' : ''], ['Cap.', G('Cap.')]]);
     h += '<div class="dgrid">';
-    h += card('기본 정보', kv([['상태', stripNo(G('상태'))], ['도로명 주소', G('소재지(도로명)')], ['지번 주소', G('소재지(지번)')], ['현 소유자', G('현 소유자')], ['매도인/시행자', G('매도인(or 시행자)')], ['용도', G('용도')], ['비고', G('비고')]]));
+    h += card('기본 정보', kv([['상태', stripNo(G('상태'))], ['도로명 주소', G('소재지(도로명)')], ['지번 주소', r.jibun], ['현 소유자', G('현 소유자')], ['매도인/시행자', G('매도인(or 시행자)')], ['용도', G('용도')], ['비고', G('비고')]]));
     h += card('규모·건축', kv([['연면적', r.area ? fmt(r.area) + '평' : ''], ['대지면적', has(G('대지면적(평)')) ? G('대지면적(평)') + '평' : ''], ['건축면적', has(G('건축면적(평)')) ? G('건축면적(평)') + '평' : ''], ['건폐율', has(G('건폐율(%)')) ? G('건폐율(%)') + '%' : ''], ['용적률', has(G('용적률(%)')) ? G('용적률(%)') + '%' : ''], ['층수', [has(G('지상층')) ? '지상 ' + G('지상층') : '', has(G('지하층')) ? '지하 ' + G('지하층') : ''].filter(Boolean).join(' / ')], ['구조', G('건축구조')], ['주용도', G('주용도')]]));
     h += card('일정', kv([['인허가', ymd(G('인허가일'))], ['착공', ymd(G('착공일'))], ['준공', ymd(G('준공일'))], ['건축연령', G('건축연령')]]));
     h += card('거래 정보', kv([['최근 거래', G('최근 거래시점')], ['거래가격', has(G('거래가격(억원)')) ? G('거래가격(억원)') + '억원' : ''], ['평단가', has(G('평단가')) ? G('평단가') + '만원' : ''], ['Cap.', G('Cap.')]]) || '<p class="placeholder">시트에 거래 정보가 없습니다.</p>');
