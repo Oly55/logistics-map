@@ -1,4 +1,4 @@
-/* 물류센터 지도 — 수도권 물류센터 DB / 거래사례 (카카오맵) */
+/* 물류센터 지도 — 물류센터 DB(수도권·천안·영남권) / 거래사례 / 공급 파이프라인 / 물류창고업 등록 (카카오맵) */
 (function () {
   'use strict';
 
@@ -6,6 +6,9 @@
   var PW_KEY = 'lmap_pw_v1';
   var PAGE = 200;
 
+  // 권역 색은 이름으로 고정(권역이 늘어도 기존 색이 바뀌지 않게). 8·9는 영남권(2026-11-28 추가)
+  var REGION_FIXED = { '1.동남권': '#2747a8', '2.남부권': '#0e8f7b', '3.중앙권': '#d4682a', '4.서부권': '#7a4fb5', '5.서북권': '#c8302f',
+    '6.충남천안권': '#1b88ad', '7.기타권': '#a26a00', '8.부울경권': '#3aa564', '9.대경권': '#862e9c' };
   var REGION_COLORS = ['#2747a8', '#0e8f7b', '#d4682a', '#7a4fb5', '#c8302f', '#1b88ad', '#a26a00', '#7b8494', '#3aa564', '#e5484d'];
   var GRADE_COLORS = { '굿딜': '#1f7a4d', '평범': '#3354c4', '별로': '#c8302f', 'KS captive': '#7b8494', '진행중': '#d4682a', '기타': '#8a3ffc' };
   var AREA_CHIPS = { centers: [0, 5000, 10000, 20000, 30000, 50000], deals: [0, 10000, 20000, 30000], wh: [0, 1000, 3000, 10000, 30000], pipe: [0, 5000, 10000, 20000, 30000] };
@@ -254,7 +257,7 @@
     });
     C.regionList = Object.keys(regions).sort();
     C.regionColor = {};
-    C.regionList.forEach(function (k, i) { C.regionColor[k] = REGION_COLORS[i % REGION_COLORS.length]; S.f.centers.regions[k] = true; });
+    C.regionList.forEach(function (k, i) { C.regionColor[k] = REGION_FIXED[k] || REGION_COLORS[i % REGION_COLORS.length]; S.f.centers.regions[k] = true; });
 
     var types = {}, years = {};
     var typeCol = D.headers[1] !== undefined ? 1 : null;  // 'No' 열 = 구분(VA/Core/NPL…)
@@ -866,6 +869,13 @@
       '<button type="button" data-tool="measure" title="직선 거리 재기">거리</button>' +
       '<button type="button" data-tool="rv" title="로드뷰(파란 선 위를 누르면 열림)">로드뷰</button>';
     document.querySelector('.mapwrap').appendChild(box);
+    // 지도 범위 바로가기(수도권·영남권·전국) — 일반/위성 왼쪽
+    var vs = document.createElement('div');
+    vs.className = 'seg maptype viewseg'; vs.setAttribute('role', 'group'); vs.setAttribute('aria-label', '지도 범위');
+    vs.innerHTML = '<button type="button" data-v="cap">수도권</button><button type="button" data-v="yn">영남권</button><button type="button" data-v="kr">전국</button>';
+    var mt = document.querySelector('.maptools');
+    if (mt) mt.insertBefore(vs, mt.firstChild);
+    vs.querySelectorAll('[data-v]').forEach(function (b) { b.addEventListener('click', function () { goView(b.getAttribute('data-v')); }); });
     var bar = document.createElement('div');
     bar.className = 'modebar'; bar.id = 'modebar';
     document.querySelector('.mapwrap').appendChild(bar);
@@ -874,6 +884,12 @@
     box.querySelector('[data-tool="rv"]').addEventListener('click', function () { setMode(S.mode === 'rv' ? null : 'rv'); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.mode) { if ($('rvPane') && !$('rvPane').hidden) closeRoadview(); else setMode(null); } });
     if (loadStore('lmap_dist') === '1') setDistrict(true, false);
+  }
+  function goView(v) {
+    var k = window.kakao.maps;
+    if (v === 'kr') { S.map.setLevel(13); S.map.setCenter(new k.LatLng(36.3, 127.8)); return; }
+    if (v === 'yn') { S.map.setBounds(new k.LatLngBounds(new k.LatLng(34.95, 127.85), new k.LatLng(36.65, 129.45)), 20, 20, 20, 20); return; }
+    S.map.setLevel(10); S.map.setCenter(new k.LatLng(37.33, 127.22));
   }
   function toolBtn(t, on) { var b = document.querySelector('.maptools2 [data-tool="' + t + '"]'); if (b) b.classList.toggle('on', !!on); }
   function setDistrict(on, say) {
@@ -1477,7 +1493,7 @@
     h += card('기본 정보', kv([['업체(그룹)', r.group], ['사업장명', r.name], ['주소', r.addr], ['시도', r.sido], ['권역', r.region], ['인허가일', r.lic]]));
     h += card('등록면적', kv([['상온(일반창고)', fmt(r.gen) + '평'], ['저온(냉동·냉장)', fmt(r.cold) + '평'], ['보관장소', fmt(r.yard) + '평 (합계 제외)'], ['합계', fmt(r.area) + '평 (' + fmt(r.area * 3.305785) + '㎡)']]));
     h += '</div>';
-    h += related(r, 'centers', '이 위치의 수도권 물류센터 DB');
+    h += related(r, 'centers', '이 위치의 물류센터 DB');
     h += '<p class="geo">좌표: 행안부 원자료(중부원점 TM → 위경도 변환). 물류창고업 등록 기준이라 실제 센터 연면적과 다를 수 있습니다.</p>';
     return h;
   }
@@ -1590,7 +1606,7 @@
     var more = rest(P, r, U);
     if (more) h += card('기타 항목', more);
     h += '</div>';
-    h += related(r, 'centers', '이 위치의 수도권 물류센터 DB');
+    h += related(r, 'centers', '이 위치의 물류센터 DB');
     h += related(r, 'deals', '이 위치의 거래사례');
     h += geoNote(r);
     return h;
@@ -1600,10 +1616,10 @@
   // 탭별 출처·조사방법(머리글 아래 한두 줄)
   var SRC = {
     centers: ['국토교통부 건축물대장·건축인허가(건축HUB) + 자체조사(소유자·거래 정보)',
-      '수도권(서울·인천·경기)·천안의 창고시설 중 동 연면적 6,611㎡(약 2,000평) 이상을 건축물대장으로 확인해 동별로 정리하고, 매월 인허가·사용승인 변경분을 반영합니다. 층별 면적·상온/저온은 건축물대장 층별개요 기준입니다.'],
+      '수도권(서울·인천·경기)·천안과 영남권(부산·대구·울산·경북·경남)의 창고시설 중 동 연면적 6,611㎡(약 2,000평) 이상을 건축물대장으로 확인해 동별로 정리하고, 매월 인허가·사용승인 변경분을 반영합니다(영남권은 2026년 11월 추가). 층별 면적·상온/저온은 건축물대장 층별개요 기준입니다.'],
     deals: ['자체조사', '거래 건별로 수집·정리한 자료이며, 평가(원 색)는 내부 판단입니다. 주소가 확인되지 않은 거래는 지도에 표시되지 않습니다.'],
     pipe: ['국토교통부 건축인허가 API(건축HUB)',
-      '수도권·천안의 창고시설 중 연면적 6,612㎡(약 2,000평) 이상 인허가 건을 매월 조회해 허가·착공·사용승인 단계로 나눕니다. 예상 준공 = 실착공일 + 규모별 평균 공사기간(13·19·25개월).'],
+      '{area}의 창고시설 중 연면적 6,612㎡(약 2,000평) 이상 인허가 건을 매월 조회해 허가·착공·사용승인 단계로 나눕니다. 예상 준공 = 실착공일 + 규모별 평균 공사기간(13·19·25개월).'],
     wh: ['행정안전부 인허가 데이터(물류창고업 등록)',
       '영업 중이고 등록면적이 있는 사업장만, 중복 등록은 빼고 집계합니다. 업체는 사업장명으로 분류합니다. 등록면적은 보관시설 면적이라 건물 연면적과 다르며, 다른 법령으로 등록한 저온 시설 등은 빠질 수 있습니다.']
   };
@@ -1614,7 +1630,12 @@
       if (!hm) return;
       el = document.createElement('p'); el.id = 'srcNote'; el.className = 'srcnote'; hm.appendChild(el);
     }
-    el.innerHTML = t ? '<b>출처</b> ' + esc(t[0]) + '<span class="dot-sep">·</span><b>조사방법</b> ' + esc(t[1]) : '';
+    var m = t ? t[1] : '';
+    if (tab === 'pipe') {   // 영남권 파이프라인은 DB 쪽 조회가 끝나 시트에 들어오면 자동으로 문구에 포함
+      var P = S.data && S.data.pipe, yn = P && P.rows && P.rows.some(function (r) { return /^(8|9)\./.test(r.region || ''); });
+      m = m.replace('{area}', yn ? '수도권·천안·영남권' : '수도권·천안');
+    }
+    el.innerHTML = t ? '<b>출처</b> ' + esc(t[0]) + '<span class="dot-sep">·</span><b>조사방법</b> ' + esc(m) : '';
   }
 
   function switchTab(tab) {

@@ -332,3 +332,10 @@ body.fs-lock{overflow:hidden}
 .rvhead{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(27,34,48,.95);color:#fff;font-size:.8rem}
 .rvhead button{padding:4px 10px;border:1px solid rgba(255,255,255,.4);border-radius:6px;background:transparent;color:#fff;font-size:.76rem;cursor:pointer}
 .rvbody{flex:1;min-height:0}
+/* 지도 범위 바로가기(수도권·영남권·전국) */
+.viewseg button{padding:5px 9px}
+.mapwrap.in-mode .maptip{display:none!important}
+@media (max-width:700px){
+  .maptip{top:auto;bottom:30px;max-width:calc(100% - 24px)}
+  .viewseg button,.maptype button{padding:5px 8px;font-size:.74rem}
+}
