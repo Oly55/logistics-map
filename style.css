@@ -312,3 +312,23 @@ body.fs-lock{overflow:hidden}
 .addrpop .ap-act:empty{display:none}
 .addrpop .ap-act button{flex:1;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:.75rem;cursor:pointer;color:var(--fg)}
 .addrpop .ap-act button:hover{border-color:var(--accent);color:var(--accent)}
+/* 지도 도구: 지적편집도·거리재기·로드뷰 */
+.maptools2{position:absolute;top:48px;right:10px;z-index:6;display:flex;flex-direction:column;gap:4px}
+.maptools2 button{min-width:52px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg);font-size:.75rem;cursor:pointer;box-shadow:0 2px 6px rgba(27,34,48,.18)}
+.maptools2 button:hover{background:#f2f4f8}
+.maptools2 button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.mapwrap.in-mode .dot{pointer-events:none}
+.modebar{display:none;position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:7;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 24px);padding:6px 8px 6px 12px;border-radius:10px;background:rgba(27,34,48,.9);color:#fff;font-size:.78rem;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.modebar button{padding:3px 9px;border:1px solid rgba(255,255,255,.35);border-radius:6px;background:transparent;color:#fff;font-size:.74rem;cursor:pointer}
+.modebar button:hover{background:rgba(255,255,255,.15)}
+.modebar .mtotal{padding:1px 8px;border-radius:6px;background:#d6336c;font-weight:700}
+.mdot{width:9px;height:9px;border-radius:50%;background:#fff;border:2px solid #d6336c;box-sizing:border-box}
+.mlabel{margin:6px 0 0 6px;padding:2px 6px;border-radius:5px;background:#fff;border:1px solid #d6336c;color:#a61e4d;font-size:.72rem;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.mlabel.mtip{background:#fff7fa;opacity:.95}
+.mlabel.mfinal{background:#d6336c;color:#fff;font-size:.78rem}
+.mlabel.mfinal b{font-weight:800}
+.rvpane{position:absolute;inset:0;z-index:9;display:flex;flex-direction:column;background:#111}
+.rvpane[hidden]{display:none}
+.rvhead{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(27,34,48,.95);color:#fff;font-size:.8rem}
+.rvhead button{padding:4px 10px;border:1px solid rgba(255,255,255,.4);border-radius:6px;background:transparent;color:#fff;font-size:.76rem;cursor:pointer}
+.rvbody{flex:1;min-height:0}

@@ -345,9 +345,16 @@
     document.addEventListener('fullscreenchange', function () { if (!document.fullscreenElement && fsOn()) setFs(false); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && fsOn() && !document.fullscreenElement) setFs(false); });
     k.event.addListener(S.map, 'zoom_changed', function () { hideHover(); resizeDots(); });
-    k.event.addListener(S.map, 'click', function () { closeInfo(); closeAddr(); });
+    k.event.addListener(S.map, 'click', function (e) {
+      if (S.mode === 'measure') { measureClick(e.latLng); return; }
+      if (S.mode === 'rv') { closeAddr(); openRoadviewAt(e.latLng); return; }
+      closeInfo(); closeAddr();
+    });
+    k.event.addListener(S.map, 'mousemove', function (e) { if (S.mode === 'measure') measureMove(e.latLng); });
+    initMapTools(k);
+    setTimeout(function () { geoGet('index.json', function () { }); }, 2500);   // 첫 검색이 기다리지 않도록 지역 목록을 미리 받아 둠
     // 우클릭 → 그 위치 주소 / 모바일은 길게 누르기(0.6초)
-    k.event.addListener(S.map, 'rightclick', function (e) { showAddrAt(e.latLng); });
+    k.event.addListener(S.map, 'rightclick', function (e) { if (S.mode === 'measure') { measureEnd(); return; } showAddrAt(e.latLng); });
     var mapEl = $('map'), lp = null;
     mapEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     mapEl.addEventListener('touchstart', function (e) {
@@ -357,6 +364,7 @@
       lp = { x: x, y: y, t: setTimeout(function () {
         var r = mapEl.getBoundingClientRect(), pr = S.map.getProjection && S.map.getProjection();
         if (!pr) return;
+        if (S.mode) return;
         showAddrAt(pr.coordsFromContainerPoint(new k.Point(x - r.left, y - r.top)));
       }, 600) };
     }, { passive: true });
@@ -834,8 +842,9 @@
         var path = poly.map(function (ring) { return ring.map(function (c) { return new k.LatLng(c[1], c[0]); }); });
         var pg = new k.Polygon({ path: path, strokeWeight: 2.5, strokeColor: '#e8590c', strokeOpacity: 0.95, strokeStyle: 'solid', fillColor: '#e8590c', fillOpacity: 0.06, zIndex: 1 });
         pg.setMap(S.map);
-        k.event.addListener(pg, 'rightclick', function (e) { showAddrAt(e.latLng); });
-        k.event.addListener(pg, 'click', closeInfo);
+        k.event.addListener(pg, 'rightclick', function (e) { if (S.mode === 'measure') measureEnd(); else showAddrAt(e.latLng); });
+        k.event.addListener(pg, 'click', function (e) { if (S.mode === 'measure') measureClick(e.latLng); else if (S.mode === 'rv') openRoadviewAt(e.latLng); else { closeInfo(); closeAddr(); } });
+        k.event.addListener(pg, 'mousemove', function (e) { if (S.mode === 'measure') measureMove(e.latLng); });
         S.regionShapes.push(pg);
       });
       var el = document.createElement('div');
@@ -847,6 +856,136 @@
     });
   }
   function clearRegions() { (S.regionShapes || []).forEach(function (s) { s.setMap(null); }); S.regionShapes = []; }
+
+  /* ---------------- 지도 도구: 지적편집도 · 거리재기 · 로드뷰 ----------------
+     지도 오른쪽 위(일반/위성 아래) 세로 버튼. 거리재기·로드뷰는 '모드'(S.mode)라 켜져 있는 동안 원 클릭은 막힘 */
+  function initMapTools(k) {
+    var box = document.createElement('div');
+    box.className = 'maptools2';
+    box.innerHTML = '<button type="button" data-tool="dist" title="지적편집도(용도지역) 겹쳐 보기">지적도</button>' +
+      '<button type="button" data-tool="measure" title="직선 거리 재기">거리</button>' +
+      '<button type="button" data-tool="rv" title="로드뷰(파란 선 위를 누르면 열림)">로드뷰</button>';
+    document.querySelector('.mapwrap').appendChild(box);
+    var bar = document.createElement('div');
+    bar.className = 'modebar'; bar.id = 'modebar';
+    document.querySelector('.mapwrap').appendChild(bar);
+    box.querySelector('[data-tool="dist"]').addEventListener('click', function () { setDistrict(!S.district, true); });
+    box.querySelector('[data-tool="measure"]').addEventListener('click', function () { setMode(S.mode === 'measure' ? null : 'measure'); });
+    box.querySelector('[data-tool="rv"]').addEventListener('click', function () { setMode(S.mode === 'rv' ? null : 'rv'); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.mode) { if ($('rvPane') && !$('rvPane').hidden) closeRoadview(); else setMode(null); } });
+    if (loadStore('lmap_dist') === '1') setDistrict(true, false);
+  }
+  function toolBtn(t, on) { var b = document.querySelector('.maptools2 [data-tool="' + t + '"]'); if (b) b.classList.toggle('on', !!on); }
+  function setDistrict(on, say) {
+    var k = window.kakao.maps;
+    if (on === !!S.district) return;
+    S.district = on;
+    if (on) S.map.addOverlayMapTypeId(k.MapTypeId.USE_DISTRICT); else S.map.removeOverlayMapTypeId(k.MapTypeId.USE_DISTRICT);
+    toolBtn('dist', on);
+    store('lmap_dist', on ? '1' : null);
+    if (say) searchMsg(on ? '지적편집도(용도지역)를 겹쳐 보여 줍니다 — 확대할수록 잘 보입니다' : '지적편집도를 껐습니다');
+  }
+  function setMode(m) {
+    var k = window.kakao.maps, prev = S.mode;
+    if (prev === 'measure') measureClear();
+    if (prev === 'rv') { S.map.removeOverlayMapTypeId(k.MapTypeId.ROADVIEW); closeRoadview(); }
+    S.mode = m || null;
+    toolBtn('measure', m === 'measure'); toolBtn('rv', m === 'rv');
+    document.querySelector('.mapwrap').classList.toggle('in-mode', !!S.mode);
+    if (S.map.setCursor) S.map.setCursor(m === 'measure' ? 'crosshair' : m === 'rv' ? 'pointer' : '');
+    closeAddr(); hideHover();
+    if (m === 'rv') S.map.addOverlayMapTypeId(k.MapTypeId.ROADVIEW);
+    modeBar();
+  }
+  function modeBar(extra) {
+    var bar = $('modebar');
+    if (!bar) return;
+    if (!S.mode) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    var h = S.mode === 'measure'
+      ? '<span>거리재기 · 지도를 눌러 지점 추가, 우클릭이나 [완료]로 끝내기</span>' + (extra || '') + '<button type="button" data-mb="end">완료</button><button type="button" data-mb="clear">지우기</button><button type="button" data-mb="off">끝내기</button>'
+      : '<span>로드뷰 · 파란 선 위를 누르세요</span><button type="button" data-mb="off">끝내기</button>';
+    bar.innerHTML = h; bar.style.display = 'flex';
+    var on = function (n, f) { var b = bar.querySelector('[data-mb="' + n + '"]'); if (b) b.addEventListener('click', function (e) { e.stopPropagation(); f(); }); };
+    on('end', measureEnd); on('clear', function () { measureClear(); modeBar(); }); on('off', function () { setMode(null); });
+  }
+
+  // 거리재기 — 클릭한 지점을 이은 직선거리(구간별·누적). 우클릭/완료로 끝내고, 다시 누르면 새로 시작
+  function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 1 : 2) + 'km' : Math.round(m) + 'm'; }
+  function measureClear() {
+    var M = S.meas;
+    if (!M) return;
+    [M.line, M.moving, M.tip].concat(M.ovs).forEach(function (o) { if (o) o.setMap(null); });
+    S.meas = null;
+  }
+  function measureLabel(pos, html, cls) {
+    var k = window.kakao.maps, el = document.createElement('div');
+    el.className = 'mlabel' + (cls ? ' ' + cls : ''); el.innerHTML = html;
+    var o = new k.CustomOverlay({ position: pos, content: el, xAnchor: 0, yAnchor: 0, zIndex: 200001, clickable: false });
+    o.setMap(S.map);
+    return o;
+  }
+  function measureClick(ll) {
+    var k = window.kakao.maps;
+    if (S.meas && S.meas.done) measureClear();
+    if (!S.meas) {
+      S.meas = { pts: [], ovs: [], line: new k.Polyline({ path: [], strokeWeight: 3, strokeColor: '#d6336c', strokeOpacity: 1, strokeStyle: 'solid', zIndex: 3 }), moving: null, tip: null, done: false };
+      S.meas.line.setMap(S.map);
+    }
+    var M = S.meas;
+    if (M.tip) { M.tip.setMap(null); M.tip = null; }
+    if (M.moving) { M.moving.setMap(null); M.moving = null; }
+    M.pts.push(ll);
+    M.line.setPath(M.pts);
+    var dot = document.createElement('div'); dot.className = 'mdot';
+    var dov = new k.CustomOverlay({ position: ll, content: dot, xAnchor: 0.5, yAnchor: 0.5, zIndex: 200000, clickable: false });
+    dov.setMap(S.map); M.ovs.push(dov);
+    if (M.pts.length > 1) M.ovs.push(measureLabel(ll, fmtDist(M.line.getLength())));
+    modeBar(M.pts.length > 1 ? '<b class="mtotal">' + fmtDist(M.line.getLength()) + '</b>' : '');
+  }
+  function measureMove(ll) {
+    var M = S.meas, k = window.kakao.maps;
+    if (!M || M.done || !M.pts.length) return;
+    var last = M.pts[M.pts.length - 1];
+    if (!M.moving) { M.moving = new k.Polyline({ path: [last, ll], strokeWeight: 3, strokeColor: '#d6336c', strokeOpacity: 0.5, strokeStyle: 'dash', zIndex: 3 }); M.moving.setMap(S.map); }
+    else M.moving.setPath([last, ll]);
+    var tot = M.line.getLength() + M.moving.getLength();
+    if (M.tip) M.tip.setMap(null);
+    M.tip = measureLabel(ll, '총 ' + fmtDist(tot), 'mtip');
+  }
+  function measureEnd() {
+    var M = S.meas;
+    if (!M || M.done) return;
+    if (M.moving) { M.moving.setMap(null); M.moving = null; }
+    if (M.tip) { M.tip.setMap(null); M.tip = null; }
+    if (M.pts.length < 2) { measureClear(); modeBar(); return; }
+    M.done = true;
+    var last = M.pts[M.pts.length - 1];
+    M.ovs.push(measureLabel(last, '총 직선거리 <b>' + fmtDist(M.line.getLength()) + '</b>', 'mfinal'));
+    modeBar('<b class="mtotal">' + fmtDist(M.line.getLength()) + '</b>');
+  }
+
+  // 로드뷰 — 누른 곳에서 가까운(기본 50m) 로드뷰를 지도 위에 크게 엶
+  function openRoadviewAt(ll, radius) {
+    var k = window.kakao.maps;
+    if (!k.RoadviewClient) return;
+    S.rvc = S.rvc || new k.RoadviewClient();
+    S.rvc.getNearestPanoId(ll, radius || 50, function (panoId) {
+      if (!panoId) { searchMsg('이 근처(' + (radius || 50) + 'm 안)에는 로드뷰가 없습니다' + (S.mode === 'rv' ? ' — 파란 선 위를 눌러 보세요' : '')); return; }
+      var pane = $('rvPane');
+      if (!pane) {
+        pane = document.createElement('div');
+        pane.id = 'rvPane'; pane.className = 'rvpane';
+        pane.innerHTML = '<div class="rvhead"><span>로드뷰</span><button type="button" id="rvClose">지도로 돌아가기 ✕</button></div><div class="rvbody" id="rvBody"></div>';
+        document.querySelector('.mapwrap').appendChild(pane);
+        $('rvClose').addEventListener('click', closeRoadview);
+      }
+      pane.hidden = false;
+      if (!S.rv) S.rv = new k.Roadview($('rvBody'));
+      S.rv.setPanoId(panoId, ll);
+      setTimeout(function () { S.rv.relayout(); }, 50);
+    });
+  }
+  function closeRoadview() { var p = $('rvPane'); if (p) p.hidden = true; }
 
   /* ---------------- 우클릭(모바일은 길게 누르기) → 그 위치 주소 ---------------- */
   function closeAddr() { if (S.addrPop) { S.addrPop.setMap(null); S.addrPop = null; } }
@@ -872,7 +1011,8 @@
       rows += '<div class="ap-row ap-sm"><em>' + (out.hname ? '행정동' : '좌표') + '</em>' + (out.hname ? esc(out.hname) + ' · ' : '') + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>';
       el.querySelector('.ap-body').innerHTML = rows;
       var act = el.querySelector('.ap-act');
-      act.innerHTML = (out.jibun || out.road ? '<button type="button" data-ap="copy">주소 복사</button>' : '') + (out.hcode ? '<button type="button" data-ap="bnd">행정동 경계</button>' : '');
+      act.innerHTML = (out.jibun || out.road ? '<button type="button" data-ap="copy">주소 복사</button>' : '') + (out.hcode ? '<button type="button" data-ap="bnd">행정동 경계</button>' : '') + '<button type="button" data-ap="rv">로드뷰</button>';
+      act.querySelector('[data-ap="rv"]').addEventListener('click', function (e) { e.stopPropagation(); closeAddr(); openRoadviewAt(ll, 100); });
       var cp = act.querySelector('[data-ap="copy"]');
       if (cp) cp.addEventListener('click', function (e) {
         e.stopPropagation();
