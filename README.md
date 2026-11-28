@@ -13,6 +13,7 @@
 | `app.js` | 데이터 로드, 필터, 원 표시, 박스 개요, 상세/목록, 기사 |
 | `style.css` | 스타일 |
 | `config.js` | Apps Script 웹 앱 URL |
+| `geo/` | 행정구역 경계(시도·시군구·읍면동, 검색 시 경계 표시용). 통계청 행정동 경계를 정리한 [vuski/admdongkor](https://github.com/vuski/admdongkor) ver20261001을 단순화. `index.json` = [코드, 이름, 시군구코드, 시도코드, 범위], `sido.json`·`sgg_시도코드.json`·`emd_시도코드.json` = 코드별 [폴리곤[링[[경도,위도]…]]] |
 
 ## 운영
 - 시트에 센터/거래를 추가하면 다음 접속 때 자동 반영됩니다. 새 주소 좌표는 접속 시 15건, 나머지는 매시간 트리거가 변환합니다.

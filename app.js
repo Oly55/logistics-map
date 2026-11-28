@@ -345,7 +345,30 @@
     document.addEventListener('fullscreenchange', function () { if (!document.fullscreenElement && fsOn()) setFs(false); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && fsOn() && !document.fullscreenElement) setFs(false); });
     k.event.addListener(S.map, 'zoom_changed', function () { hideHover(); resizeDots(); });
-    k.event.addListener(S.map, 'click', closeInfo);
+    k.event.addListener(S.map, 'click', function () { closeInfo(); closeAddr(); });
+    // 우클릭 → 그 위치 주소 / 모바일은 길게 누르기(0.6초)
+    k.event.addListener(S.map, 'rightclick', function (e) { showAddrAt(e.latLng); });
+    var mapEl = $('map'), lp = null;
+    mapEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    mapEl.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) { clearTimeout(lp && lp.t); lp = null; return; }
+      var t0 = e.touches[0], x = t0.clientX, y = t0.clientY;
+      clearTimeout(lp && lp.t);
+      lp = { x: x, y: y, t: setTimeout(function () {
+        var r = mapEl.getBoundingClientRect(), pr = S.map.getProjection && S.map.getProjection();
+        if (!pr) return;
+        showAddrAt(pr.coordsFromContainerPoint(new k.Point(x - r.left, y - r.top)));
+      }, 600) };
+    }, { passive: true });
+    var lpCancel = function (e) {
+      if (!lp) return;
+      if (e && e.type === 'touchmove') { var t = e.touches[0]; if (Math.abs(t.clientX - lp.x) < 10 && Math.abs(t.clientY - lp.y) < 10) return; }
+      clearTimeout(lp.t); lp = null;
+    };
+    mapEl.addEventListener('touchmove', lpCancel, { passive: true });
+    mapEl.addEventListener('touchend', lpCancel);
+    mapEl.addEventListener('touchcancel', lpCancel);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAddr(); });
   }
 
   function zoomFactor() {
@@ -632,7 +655,7 @@
     });
     h += '</div><input class="num" id="fmin" type="number" placeholder="최소(평)" value="' + (f.min != null && f.min !== '' ? f.min : '') + '">';
     h += '<span class="muted">~</span><input class="num" id="fmax" type="number" placeholder="최대(평)" value="' + (f.max != null && f.max !== '' ? f.max : '') + '"></div>';
-    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 비고 검색' : S.tab === 'wh' ? '사업장명 · 업체 · 주소 검색' : S.tab === 'pipe' ? '건물명 · 주소 · 시군구 · 메모 검색' : '프로젝트 · 주소 · 매도/매수자 · 임차인 검색') + '" value="' + esc(f.q) + '"><button class="sgo" id="fgo" type="button" title="검색어 위치로 지도 이동 (Enter)">이동</button></div>';
+    h += '<div class="fgroup"><input class="search" id="fq" placeholder="' + (S.tab === 'centers' ? '건물명 · 소유자 · 주소 · 지역 검색' : S.tab === 'wh' ? '사업장명 · 업체 · 주소 · 지역 검색' : S.tab === 'pipe' ? '건물명 · 주소 · 지역 · 메모 검색' : '프로젝트 · 주소 · 매도/매수자 · 지역 검색') + '" value="' + esc(f.q) + '"><button class="sgo" id="fgo" type="button" title="검색어 위치로 지도 이동 (Enter)">이동</button></div>';
     h += '<div class="count" id="count"></div>';
     var el = $('filters');
     el.innerHTML = h;
@@ -658,6 +681,10 @@
     var q = ($('fq').value || '').trim(), k = window.kakao && window.kakao.maps;
     clearSearchPin();
     if (!q || !k || !S.map) return;
+    var seq = S.searchSeq = (S.searchSeq || 0) + 1;
+    findRegions(q, function (regs) { if (seq === S.searchSeq) searchGo2(q, k, regs); });
+  }
+  function searchGo2(q, k, regs) {
     var f = S.f[S.tab];
     if (f.q !== q) { f.q = q; draw(); }
     var hits = filtered().filter(hasXY), note = '';
@@ -667,14 +694,30 @@
       hits = S.data[S.tab].rows.filter(function (r) { return hasXY(r) && passes(r, f2, lq); });
       if (hits.length) note = ' — 연면적 조건에 걸려 숨겨진 곳입니다(연면적 \'전체\'를 누르면 보입니다)';
     }
+    if (hits.length && regs.length > 1) {   // 같은 이름 지역이 여러 곳이면 찾은 원이 들어 있는 곳만
+      var nearBy = function (m) { return regs.filter(function (g) { return hits.some(function (r) { return r.lng >= g.b[0] - m && r.lng <= g.b[2] + m && r.lat >= g.b[1] - m && r.lat <= g.b[3] + m; }); }); };
+      var near = nearBy(0);
+      if (!near.length) near = nearBy(0.1);   // 약 10km 안
+      if (near.length) regs = near;
+    }
+    var rnote = regs.length ? ' · ' + regLabel(regs) + ' 경계 표시' : '';
+    if (regs.length) drawRegions(regs);
     if (hits.length) {
-      if (hits.length === 1) { S.map.setLevel(Math.min(S.map.getLevel(), 5)); S.map.setCenter(new k.LatLng(hits[0].lat, hits[0].lng)); }
+      if (hits.length === 1 && !regs.length) { S.map.setLevel(Math.min(S.map.getLevel(), 5)); S.map.setCenter(new k.LatLng(hits[0].lat, hits[0].lng)); }
       else {
         var b = new k.LatLngBounds();
         hits.forEach(function (r) { b.extend(new k.LatLng(r.lat, r.lng)); });
+        regs.forEach(function (g) { regExtend(b, g); });
         S.map.setBounds(b, 40, 40, 40, 40);
       }
-      searchMsg(fmt(hits.length) + (S.tab === 'deals' || S.tab === 'pipe' ? '건' : '곳') + '으로 이동했습니다' + note);
+      searchMsg(fmt(hits.length) + (S.tab === 'deals' || S.tab === 'pipe' ? '건' : '곳') + '으로 이동했습니다' + note + rnote);
+      return;
+    }
+    if (regs.length) {
+      var b2 = new k.LatLngBounds();
+      regs.forEach(function (g) { regExtend(b2, g); });
+      S.map.setBounds(b2, 30, 30, 30, 30);
+      searchMsg('맞는 ' + (S.tab === 'deals' || S.tab === 'pipe' ? '항목은' : '센터는') + ' 없고, ' + regLabel(regs) + ' 경계를 표시했습니다');
       return;
     }
     if (!k.services) { searchMsg('맞는 항목이 없습니다'); return; }
@@ -708,7 +751,169 @@
       });
     });
   }
-  function clearSearchPin() { if (S.searchPin) { S.searchPin.setMap(null); S.searchPin = null; } }
+  function clearSearchPin() { if (S.searchPin) { S.searchPin.setMap(null); S.searchPin = null; } clearRegions(); }
+
+  /* ---------------- 행정구역 경계(검색) ----------------
+     geo/index.json: [코드, 이름, 시군구코드, 시도코드, [서,남,동,북]] — 시도(2자리)·시군구(5)·행정동(10)
+     경계 원자료: 통계청 행정동 경계(vuski/admdongkor ver20261001)를 단순화. 시도별 파일을 필요할 때만 받음
+     읍·면·행정동까지만 있음(법정동·리는 없음) → 이름이 안 맞으면 기존 주소 검색으로 넘어감 */
+  var GEO = { idx: null, files: {}, wait: null };
+  var SIDO_ALIAS = { '충남': '충청남도', '충북': '충청북도', '경남': '경상남도', '경북': '경상북도', '전남': '전남광주통합특별시' };
+  function geoGet(path, cb) {
+    if (GEO.files[path]) { if (GEO.files[path].data) cb(GEO.files[path].data); else GEO.files[path].cbs.push(cb); return; }
+    var e = GEO.files[path] = { data: null, cbs: [cb] };
+    fetch('geo/' + path).then(function (r) { return r.json(); }).then(function (d) { e.data = d; e.cbs.forEach(function (f) { f(d); }); e.cbs = []; })
+      .catch(function () { delete GEO.files[path]; e.cbs.forEach(function (f) { f(null); }); });
+  }
+  function coreName(n) { return String(n || '').replace(/(통합특별시|특별자치도|특별자치시|특별시|광역시|도|시|군|구|읍|면|동|가)$/, ''); }
+  function tokHit(t, names) {
+    var ct = coreName(t), suf = ct !== t;   // '강남구'처럼 구·동 등을 붙여 쓰면 같은 종류만(강남동 X)
+    return names.some(function (n) {
+      if (n === t) return true;
+      if (suf) return false;
+      var cn = coreName(n);
+      if (ct.length >= 2 && cn === ct) return true;
+      return ct.length >= 2 && /동$/.test(n) && cn.replace(/\d+(\.\d+)?$/, '') === ct;   // '청라' → 청라1동·청라2동…
+    });
+  }
+  function findRegions(q, cb) {
+    var toks = qTokens(q).map(function (t) { return SIDO_ALIAS[t] || t; });
+    if (!toks.length || toks.some(function (t) { return /^\d/.test(t); })) { cb([]); return; }
+    geoGet('index.json', function (d) {
+      if (!d || !d.r) { cb([]); return; }
+      if (!GEO.idx) {
+        var by = {};
+        d.r.forEach(function (x) { by[x[0]] = x; });
+        GEO.idx = { rows: d.r, by: by };
+      }
+      var by = GEO.idx.by, best = [], bestLv = 0;
+      GEO.idx.rows.forEach(function (x) {
+        var lv = x[0].length === 10 ? 3 : x[0].length === 5 ? 2 : 1;
+        if (lv < bestLv) return;
+        var own = lv === 2 ? x[1].split(' ').concat([x[1].replace(/\s/g, '')]) : [x[1]];
+        var anc = [];
+        if (lv === 3 && by[x[2]]) anc = anc.concat(by[x[2]][1].split(' '));
+        if (lv >= 2 && by[x[3]]) anc.push(by[x[3]][1]);
+        var hitOwn = false;
+        for (var i = 0; i < toks.length; i++) {
+          var t = toks[i].toLowerCase();
+          if (tokHit(t, own)) hitOwn = true;
+          else if (!tokHit(t, anc)) return;
+        }
+        if (!hitOwn) return;
+        if (lv > bestLv) { bestLv = lv; best = []; }
+        best.push({ code: x[0], name: x[1], lv: lv, sido: lv === 1 ? x[0] : x[3], b: x[4],
+          full: lv === 3 ? (by[x[2]] ? by[x[2]][1] + ' ' : '') + x[1] : lv === 2 ? (by[x[3]] ? by[x[3]][1] + ' ' : '') + x[1] : x[1] });
+      });
+      if (!best.length || best.length > 12) { cb([]); return; }
+      var need = {}, left;
+      best.forEach(function (g) { need[g.lv === 1 ? 'sido.json' : (g.lv === 2 ? 'sgg_' : 'emd_') + g.sido + '.json'] = 1; });
+      left = Object.keys(need).length;
+      Object.keys(need).forEach(function (fn) {
+        geoGet(fn, function (gd) {
+          best.forEach(function (g) {
+            var gfn = g.lv === 1 ? 'sido.json' : (g.lv === 2 ? 'sgg_' : 'emd_') + g.sido + '.json';
+            if (gfn === fn) g.geom = gd && gd[g.code];
+          });
+          if (--left === 0) cb(best.filter(function (g) { return g.geom; }));
+        });
+      });
+    });
+  }
+  function regLabel(regs) {
+    var n = regs.map(function (g) { return g.lv === 3 ? g.name : g.name.split(' ').pop(); });
+    return '「' + (n.length > 3 ? n.slice(0, 3).join('·') + ' 외 ' + (n.length - 3) + '곳' : n.join('·')) + '」';
+  }
+  function regExtend(b, g) { var k = window.kakao.maps; b.extend(new k.LatLng(g.b[1], g.b[0])); b.extend(new k.LatLng(g.b[3], g.b[2])); }
+  function drawRegions(regs) {
+    var k = window.kakao.maps;
+    clearRegions();
+    S.regionShapes = [];
+    regs.forEach(function (g) {
+      g.geom.forEach(function (poly) {
+        var path = poly.map(function (ring) { return ring.map(function (c) { return new k.LatLng(c[1], c[0]); }); });
+        var pg = new k.Polygon({ path: path, strokeWeight: 2.5, strokeColor: '#e8590c', strokeOpacity: 0.95, strokeStyle: 'solid', fillColor: '#e8590c', fillOpacity: 0.06, zIndex: 1 });
+        pg.setMap(S.map);
+        k.event.addListener(pg, 'rightclick', function (e) { showAddrAt(e.latLng); });
+        k.event.addListener(pg, 'click', closeInfo);
+        S.regionShapes.push(pg);
+      });
+      var el = document.createElement('div');
+      el.className = 'rglabel';
+      el.textContent = g.full;
+      var lab = new k.CustomOverlay({ position: new k.LatLng(g.b[3], (g.b[0] + g.b[2]) / 2), content: el, xAnchor: 0.5, yAnchor: 0, zIndex: 2, clickable: false });
+      lab.setMap(S.map);
+      S.regionShapes.push(lab);
+    });
+  }
+  function clearRegions() { (S.regionShapes || []).forEach(function (s) { s.setMap(null); }); S.regionShapes = []; }
+
+  /* ---------------- 우클릭(모바일은 길게 누르기) → 그 위치 주소 ---------------- */
+  function closeAddr() { if (S.addrPop) { S.addrPop.setMap(null); S.addrPop = null; } }
+  function showAddrAt(ll) {
+    var k = window.kakao && window.kakao.maps;
+    if (!k || !k.services || !ll) return;
+    closeAddr(); hideHover();
+    var lat = ll.getLat(), lng = ll.getLng();
+    var el = document.createElement('div');
+    el.className = 'addrpop';
+    el.innerHTML = '<button type="button" class="ap-x" aria-label="닫기">×</button><div class="ap-body"><div class="ap-row muted">주소 확인 중…</div></div><div class="ap-act"></div>';
+    S.addrPop = new k.CustomOverlay({ position: ll, content: el, xAnchor: 0.5, yAnchor: 1, zIndex: 100000, clickable: true });
+    S.addrPop._el = el;
+    S.addrPop.setMap(S.map);
+    el.querySelector('.ap-x').addEventListener('click', function (e) { e.stopPropagation(); closeAddr(); });
+    var gc = new k.services.Geocoder(), OK = k.services.Status.OK, out = { jibun: '', road: '', hname: '', hcode: '' }, left = 2;
+    var done = function () {
+      if (--left > 0 || !S.addrPop || S.addrPop._el !== el) return;
+      var rows = '';
+      if (out.jibun) rows += '<div class="ap-row"><em>지번</em><b>' + esc(out.jibun) + '</b></div>';
+      if (out.road) rows += '<div class="ap-row"><em>도로명</em>' + esc(out.road) + '</div>';
+      if (!rows) rows = '<div class="ap-row muted">이 위치의 주소를 찾지 못했습니다</div>';
+      rows += '<div class="ap-row ap-sm"><em>' + (out.hname ? '행정동' : '좌표') + '</em>' + (out.hname ? esc(out.hname) + ' · ' : '') + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>';
+      el.querySelector('.ap-body').innerHTML = rows;
+      var act = el.querySelector('.ap-act');
+      act.innerHTML = (out.jibun || out.road ? '<button type="button" data-ap="copy">주소 복사</button>' : '') + (out.hcode ? '<button type="button" data-ap="bnd">행정동 경계</button>' : '');
+      var cp = act.querySelector('[data-ap="copy"]');
+      if (cp) cp.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var t = [out.jibun, out.road].filter(Boolean).join('\n');
+        var ok = function () { cp.textContent = '복사됨'; setTimeout(function () { cp.textContent = '주소 복사'; }, 1500); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, function () { cp.textContent = '복사 실패'; });
+        else { var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (er) { } ta.remove(); }
+      });
+      var bd = act.querySelector('[data-ap="bnd"]');
+      if (bd) bd.addEventListener('click', function (e) {
+        e.stopPropagation();
+        showRegionByCode(out.hcode, out.hname);
+      });
+    };
+    gc.coord2Address(lng, lat, function (res, st) {
+      if (st === OK && res && res[0]) {
+        out.jibun = res[0].address ? res[0].address.address_name : '';
+        out.road = res[0].road_address ? res[0].road_address.address_name : '';
+      }
+      done();
+    });
+    gc.coord2RegionCode(lng, lat, function (res, st) {
+      if (st === OK && res) res.forEach(function (r) { if (r.region_type === 'H') { out.hcode = r.code; out.hname = [r.region_2depth_name, r.region_3depth_name].filter(Boolean).join(' '); } });
+      done();
+    });
+  }
+  // 행정동 코드(10자리)로 경계 표시(우클릭 창의 '행정동 경계')
+  function showRegionByCode(code, label) {
+    geoGet('index.json', function (d) {
+      if (!d || !d.r) return;
+      var x = null;
+      d.r.forEach(function (r) { if (r[0] === code) x = r; });
+      if (!x) { searchMsg('이 행정동의 경계 자료가 없습니다'); return; }
+      geoGet('emd_' + x[3] + '.json', function (gd) {
+        var geom = gd && gd[code];
+        if (!geom) { searchMsg('이 행정동의 경계 자료가 없습니다'); return; }
+        drawRegions([{ code: code, name: x[1], lv: 3, sido: x[3], b: x[4], geom: geom, full: label || x[1] }]);
+        searchMsg('「' + (label || x[1]) + '」 경계를 표시했습니다');
+      });
+    });
+  }
   function searchMsg(t) {
     var el = $('smsg');
     if (!el) { el = document.createElement('div'); el.id = 'smsg'; el.className = 'smsg'; document.querySelector('.mapwrap').appendChild(el); }
@@ -1277,7 +1482,7 @@
     setSrc(tab);
     clearSearchPin();
     $('mapLabel').textContent = tab === 'centers' ? '센터 위치' : tab === 'wh' ? '물류창고업 등록 센터 위치' : tab === 'pipe' ? '공급 파이프라인 위치' : '거래사례 위치';
-    $('mapNote').textContent = tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : tab === 'wh' ? '원 색 = 업체(등록면적 상위 8곳) · 회색 = 그 외 · 연회색 = 미분류' : tab === 'pipe' ? '원 색 = 상태 · 크기 = 연면적 · 지연·장기미착공은 기본 숨김' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적';
+    $('mapNote').textContent = (tab === 'centers' ? '원 색 = 권역 · 크기 = 연면적 · 기본은 1만평 이상만 표시' : tab === 'wh' ? '원 색 = 업체(등록면적 상위 8곳) · 회색 = 그 외 · 연회색 = 미분류' : tab === 'pipe' ? '원 색 = 상태 · 크기 = 연면적 · 지연·장기미착공은 기본 숨김' : '원 색 = 평가(시트 셀 색) · 크기 = 연면적') + ' · 지도 우클릭(모바일은 길게 누르기) = 그 위치 주소';
     Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === tab); });
     if (!S.data) return;
     if (tab === 'wh' && !S.data.wh) { $('whCharts').hidden = true; whLoad(); return; }

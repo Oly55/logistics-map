@@ -299,3 +299,16 @@ body.fs-lock{overflow:hidden}
 .srcnote{margin:4px 0 0;font-size:.76rem;line-height:1.55;color:var(--muted);max-width:62rem}
 .srcnote b{font-weight:600;color:var(--fg);margin-right:3px}
 .flwarn{display:inline-block;margin-left:10px;padding:1px 8px;border-radius:4px;background:#fff4e0;border:1px solid #f0d2a0;color:#8a5a12;font-size:.72rem;font-weight:500;vertical-align:1px}
+/* 행정구역 경계 라벨, 우클릭 주소 창 */
+.rglabel{padding:2px 8px;border-radius:10px;background:#e8590c;color:#fff;font-size:.72rem;font-weight:600;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.25);pointer-events:none;transform:translateY(-120%)}
+.addrpop{position:relative;min-width:220px;max-width:320px;margin-bottom:10px;padding:10px 12px 8px;border-radius:8px;background:#fff;color:var(--fg);box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:.8rem;line-height:1.5}
+.addrpop:after{content:'';position:absolute;left:50%;bottom:-8px;margin-left:-8px;border:8px solid transparent;border-bottom:0;border-top-color:#fff}
+.addrpop .ap-x{position:absolute;right:4px;top:2px;border:0;background:none;font-size:1rem;line-height:1;color:var(--muted);cursor:pointer;padding:4px}
+.addrpop .ap-body{padding-right:14px}
+.addrpop .ap-row{display:flex;gap:6px;word-break:keep-all}
+.addrpop .ap-row em{flex:0 0 38px;font-style:normal;color:var(--muted)}
+.addrpop .ap-sm{font-size:.72rem;color:var(--muted);margin-top:2px}
+.addrpop .ap-act{display:flex;gap:6px;margin-top:8px}
+.addrpop .ap-act:empty{display:none}
+.addrpop .ap-act button{flex:1;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:.75rem;cursor:pointer;color:var(--fg)}
+.addrpop .ap-act button:hover{border-color:var(--accent);color:var(--accent)}
